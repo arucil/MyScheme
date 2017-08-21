@@ -1,2 +1,2 @@
-# Scheme0-in-scheme
+# MyScheme
 A simple Scheme compiler &amp; VM
