@@ -2,6 +2,7 @@
 (load "define.scm")
 
 (define (compile-error . args)
+  (error 'compile "compile error" args)
   'stub)
 
 ;;;;;;;;;;;;;;;;;;;;        compile        ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -18,34 +19,38 @@
             (rec (cdr e*))))))
 
 (define (meaning e cenv tail?)
-  (if (or (boolean? e)
-          (number? e)
-          (string? e)
-          (char? e))
-    (meaning-quotation e cenv tail?)
+  (cond
+   [(or (boolean? e)
+        (number? e)
+        (string? e)
+        (char? e))
+    (meaning-quote e cenv tail?)]
+   [(symbol? e)
+    (meaning-reference e cenv tail?)]
+   [else
     (if (pair? e)
-      (case (car e)
-        [(quote)  (meaning-quote (cadr e) cenv tail?)]
-        [(if)     (meaning-if (cadr e) (caddr e) (cadddr e) cenv tail?)]
-        [(set!)   (meaning-set (cadr e) (caddr e) cenv tail?)]
-        [(define) (compile-error "define only allowed at toplevel")]
-        [(lambda) (meaning-lambda (cadr e) (cddr e) cenv tail?)]
-        [(begin)  (meaning-sequence (cdr e) cenv tail?)]
-        [(and)    (meaning-and/or (cdr e) cenv tail? #t)]
-        [(or)     (meaning-and/or (cdr e) cenv tail? #f)]
-        [(cond)   (meaning-cond (cdr e) cenv tail?)]
-        [(let)    (meaning-let (cadr e) (cddr e) cenv tail?)]
-        [else     (meaning-application e cenv tail?)])
-      (compile-error "Invalid syntax ()"))))
+        (case (car e)
+          [(quote)  (meaning-quote (cadr e) cenv tail?)]
+          [(if)     (meaning-if (cadr e) (caddr e) (cadddr e) cenv tail?)]
+          [(set!)   (meaning-set (cadr e) (caddr e) cenv tail?)]
+          [(define) (compile-error "define only allowed at toplevel")]
+          [(lambda) (meaning-lambda (cadr e) (cddr e) cenv tail?)]
+          [(begin)  (meaning-sequence (cdr e) cenv tail?)]
+          [(and)    (meaning-and/or (cdr e) cenv tail? #t)]
+          [(or)     (meaning-and/or (cdr e) cenv tail? #f)]
+          [(cond)   (meaning-cond (cdr e) cenv tail?)]
+          [(let)    (meaning-let (cadr e) (cddr e) cenv tail?)]
+          [else     (meaning-application e cenv tail?)])
+        (compile-error "Invalid syntax" e))]))
 
 (define (meaning-quote c cenv tail?)
   (case c
-    [(#f) (instruction-code 'const-false)]
-    [(#t) (instruction-code 'const-true)]
-    [(()) (instruction-code 'const-null)]
-    [(0)  (instruction-code 'const-0)]
-    [(1)  (instruction-code 'const-1)]
-    [else (instruction-code 'const (get-constant-index c))]))
+    [(#f) (instruction-encode 'const-false)]
+    [(#t) (instruction-encode 'const-true)]
+    [(()) (instruction-encode 'const-null)]
+    [(0)  (instruction-encode 'const-0)]
+    [(1)  (instruction-encode 'const-1)]
+    [else (instruction-encode 'const (get-constant-index c))]))
 
 (define (meaning-if e1 e2 e3 cenv tail?)
   (let* ([m3 (meaning e3 cenv tail?)]
@@ -70,15 +75,26 @@
 (define (meaning-set name e cenv tail?)
   (append
     (meaning e cenv #f)
-    (let ([addr (get-variable-address name)])
+    (let ([addr (get-variable-address name cenv)])
       (case (car addr)
         [(local)
          (if (zero? (cadr addr))
-           (instruction-code 'shallow-ref (cddr addr))
-           (instruction-code 'deep-ref (cadr addr) (cddr addr)))]
+           (instruction-encode 'shallow-set (cddr addr))
+           (instruction-encode 'deep-set (cadr addr) (cddr addr)))]
         [(global)
-         (instruction-code 'global-ref (cdr addr))]
+         (instruction-encode 'global-set (cdr addr))]
         [else (error 'meaning-set "unreachable")]))))
+
+(define (meaning-reference name cenv tail?)
+  (let ([addr (get-variable-address name cenv)])
+    (case (car addr)
+      [(local)
+       (if (zero? (cadr addr))
+           (instruction-encode 'shallow-ref (cddr addr))
+           (instruction-encode 'deep-ref (cadr addr) (cddr addr)))]
+      [(global)
+       (instruction-encode 'global-ref (cdr addr))]
+      [else (error 'meaing-reference "unreachable")])))
 
 (define (meaning-sequence e+ cenv tail?)
   (let loop ([e+ e+])
@@ -132,22 +148,36 @@
                                #t)]
          [size (length m1)]
          [n (variadic? args)])
-    (append (instruction-code 'closure
-                              (modulo size 256)
-                              (quotient size 256))
+    (append (instruction-encode 'closure
+                                (modulo size 256)
+                                (quotient size 256))
             (if n
-                (instruction-code 'varfunc n)
-                (instruction-code 'func (length args)))
+                (instruction-encode 'varfunc n)
+                (instruction-encode 'func (length args)))
             m1)))
+
+(define (meaning-application e+ cenv tail?)
+  (define (chain-params ls)
+    (if (null? ls)
+        '()
+        (cons (f (car ls))
+              (map-lr f (cdr ls)))))
+  (display "here")
+  (append (append (map-lr (lambda (e)
+                            (append (meaning e cenv #f)
+                                    (instruction-encode 'push)))
+                          (cdr e+)))
+          (meaning (car e+) cenv #f)
+          (instruction-encode (if tail? 'tail-call 'call) (length (cdr e+)))))
 
 ;;;;;;;;;;;;;;;;;;  auxiliary functions
 
 (define (gen-goto code offset)
   (if (> offset 65535)
     (compile-error "too long jump" offset)
-    (instruction-code code
-                      (modulo offset 256)
-                      (quotient offset 256))))
+    (instruction-encode code
+                        (modulo offset 256)
+                        (quotient offset 256))))
 
 (define (get-variable-address name cenv)
   (let loop ([cenv cenv] [i 0])
@@ -157,7 +187,7 @@
          (cond
            [(null? rib)
             (loop (cdr cenv) (+ i 1))]
-           [(eq? (car rib))
+           [(eq? (car rib) name)
             `(local ,i . ,j)]
            [else (loop2 (cdr rib) (+ j 1))])))))
 

@@ -68,6 +68,9 @@
 
 (define *global*)
 
+(define (init-global!)
+  (set! *global* '()))
+
 (define undefined-tag "undefined")
 
 (define (global-reference i)
@@ -109,7 +112,7 @@
   (syntax-rules (define-instruction)
     [(_ (define-instruction (instruction arg ...) code . body) ...)
      (begin
-       (set! instruction-code
+       (set! instruction-encode
          (lambda (ins . params)
            (case ins
              [(instruction) (cons code params)]
@@ -135,12 +138,14 @@
     (set! *pc* (cdr *pc*))
     b))
 
-(define instruction-code)
+(define instruction-encode)
 (define instruction-size)
 (define run-instruction)
 
 (define-instruction-set
+
   ;; constant
+
   (define-instruction (const-true) 1
     (set! *acc* #t))
   (define-instruction (const-false) 2
@@ -155,6 +160,7 @@
     (set! *acc* (get-constant i)))
 
   ;; reference
+
   (define-instruction (shallow-ref i) 10
     (set! *acc* (local-reference 0 i)))
   (define-instruction (deep-ref i j) 11
@@ -163,6 +169,7 @@
     (set! *acc* (global-reference i)))
 
   ;; assignment
+
   (define-instruction (shallow-ref i) 13
     (local-assign 0 i *acc*))
   (define-instruction (deep-ref i j) 14
@@ -171,28 +178,63 @@
     (global-assign i *acc*))
 
   ;; jump
+
   (define-instruction (goto offset1 offset2) 20
     (common-goto offset1 offset2))
+
   (define-instruction (goto-if-false offset1 offset2) 21
     (unless *acc*
       (common-goto offset1 offset2)))
+
   (define-instruction (goto-if-true offset1 offset2) 22
     (when *acc*
       (common-goto offset1 offset2)))
 
   ;; closure
+
   (define-instruction (closure offset1 offset2) 25
     (set! *acc* (make-closure *env* *pc*)))
 
-  ;; miscellaneous
+  (define-instruction (func arity) 26     ; regular function
+    'stub)
+
+  (define-instruction (varfunc arity) 27  ; variadic function
+    'stub)
+
+  ;; application
+
   (define-instruction (exit) 30
     'stub)
+
   (define-instruction (return) 31
     (set! *pc* (stack-pop!))
     (set! *env* (stack-pop!)))
+
+  (define-instruction (push) 32 ; save argument
+    (stack-push! *acc*))
+
+  (define-instruction (arity n) 33 ; for closed applications
+    (set! *acc* n))
+
+  (define-instruction (call n) 34
+    (common-call n #f))
+
+  (define-instruction (tail-call n) 35
+    (common-call n #t))
   )
 
 ;; auxiliary functions
 
 (define (common-goto offset1 offset2)
   (set! *pc* (list-tail *pc* (+ offset1 (* 256 offset2)))))
+
+(define (common-call n tail?)
+  (unless tail?
+    (stack-push! *env*)
+    (stack-push! *pc*))
+  (if (closure? *acc*)
+      (begin
+        (set! *pc* (closure-code *acc*))
+        (set! *env* (closure-env *acc*))
+        (set! *acc* n))
+      (runtime-error "Attempt to apply non-procedure" *acc*)))
