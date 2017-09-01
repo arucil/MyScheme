@@ -4,9 +4,19 @@
 (define (runtime-error)
   'stub)
 
+(define (initialize!)
+  (init-constants!)
+  (init-globals!)
+  (init-stack!)
+  ;; initialize primitives
+  )
+
 ;;;;;;;;;;;;;;;;;;             constants         ;;;;;;;;;;;;;;;;;;;;;
 
-(define *constants* '())
+(define *constants*)
+
+(define (init-constants!)
+  (set! *constants* '()))
 
 (define (get-constant-index c)
   (let loop ([i 0]
@@ -41,24 +51,37 @@
 ;;  [next ]  ->  [next ]  ->  ...  -> #f
 ;;  [frame]      [frame]
 ;;     |             \
-;;     v              #(...)
-;;   #(local0 local0 ...)
+;;     v              (...)
+;;   (local0 local1 ...)
 
 (define-record-type activation-record (fields next frame))
 
 (define (local-reference i j)
   (let loop ([i i] [env *env*])
     (if (zero? i)
-      (vector-ref (activation-record-frame env) j)
+      (list-ref (activation-record-frame env) j)
       (loop (- i 1)
             (activation-record-next env)))))
 
 (define (local-assign i j v)
   (let loop ([i i] [env *env*])
     (if (zero? i)
-      (vector-set! (activation-record-frame env) j v)
+      (set-car! (list-tail (activation-record-frame env) j) v)
       (loop (- i 1)
             (activation-record-next env)))))
+
+(define (extend-env n env)
+  (define (make-list n ls)
+    (if (zero? n)
+      ls
+      (make-list (- n 1) (cons #f ls))))
+
+  (make-activation-record
+    env
+    (make-list (+ n 1) '()))) ; leave 1 slot for variadic functions
+
+(define (shrink-env env)
+  (activation-record-next env))
 
 ;;;;;;;;;;;;;;;;           globals              ;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -66,37 +89,42 @@
 ;;    ...
 ;;  )
 
-(define *global*)
+(define *globals*)
 
-(define (init-global!)
-  (set! *global* '()))
+(define (empty-globals!)
+  (set! *globals* '()))
+
+(define (init-globals!)
+  (empty-globals!)
+  (add-primitives!))
 
 (define undefined-tag "undefined")
 
 (define (global-reference i)
-  (let ([v (list-ref *global* i)])
+  (let ([v (list-ref *globals* i)])
     (if (eq? undefined-tag (cdr v))
       (runtime-error "Undefined global variable" (car v))
       (cdr v))))
 
 (define (global-assign i v)
-  (set-cdr! (list-ref *global* i) v))
+  (set-cdr! (list-ref *globals* i) v))
 
 (define (get-global-index name)
-  (let loop ([g *global*] [i 0])
+  (let loop ([g *globals*] [i 0])
     (cond
       [(null? g)
-       (set! *global* (append *global* (cons name undefined-tag)))
+       (set! *globals* (append *globals* (list (cons name undefined-tag))))
        i]
       [(eq? (caar g) name)
        i]
       [else (loop (cdr g) (+ i 1))])))
 
+(define (get-global i)
+  (list-ref *globals* i))
+
 ;;;;;;;;;;;;;;;;;          registers            ;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define *acc*)
-
-(define *fun*)
 
 (define *env*)
 
@@ -105,6 +133,10 @@
 ;;;;;;;;;;;;;;;;;         closure          ;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define-record-type closure (fields env code))
+
+;;;;;;;;;;;;;;;;;         primitive          ;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define-record-type primitive (fields func))
 
 ;;;;;;;;;;;;;;;;;            instruction set       ;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -118,10 +150,16 @@
              [(instruction) (cons code params)]
              ...)))
 
+       (set! instruction-decode
+         (lambda (b)
+           (case b
+             [(code) 'instruction]
+             ...)))
+
        (set! instruction-size
          (lambda (c)
            (case c
-             [(code) (+1 (length (list arg ...)))]
+             [(code) (+ 1 (length '(arg ...)))]
              ...
              )))
 
@@ -139,6 +177,7 @@
     b))
 
 (define instruction-encode)
+(define instruction-decode)
 (define instruction-size)
 (define run-instruction)
 
@@ -146,15 +185,15 @@
 
   ;; constant
 
-  (define-instruction (const-true) 1
+  (define-instruction (const/true) 1
     (set! *acc* #t))
-  (define-instruction (const-false) 2
+  (define-instruction (const/false) 2
     (set! *acc* #f))
-  (define-instruction (const-null) 3
+  (define-instruction (const/null) 3
     (set! *acc* '()))
-  (define-instruction (const-0) 4
+  (define-instruction (const/0) 4
     (set! *acc* 0))
-  (define-instruction (const-1) 5
+  (define-instruction (const/1) 5
     (set! *acc* 1))
   (define-instruction (const i) 6
     (set! *acc* (get-constant i)))
@@ -170,11 +209,11 @@
 
   ;; assignment
 
-  (define-instruction (shallow-ref i) 13
+  (define-instruction (shallow-set i) 13
     (local-assign 0 i *acc*))
-  (define-instruction (deep-ref i j) 14
+  (define-instruction (deep-set i j) 14
     (local-assign i j *acc*))
-  (define-instruction (global-ref i) 15
+  (define-instruction (global-set i) 15
     (global-assign i *acc*))
 
   ;; jump
@@ -213,13 +252,16 @@
   (define-instruction (push) 32 ; save argument
     (stack-push! *acc*))
 
-  (define-instruction (arity n) 33 ; for closed applications
-    (set! *acc* n))
+  (define-instruction (extend-env n) 33 ; for closed applications
+    (set! *env* (extend-env n *env*)))
 
-  (define-instruction (call n) 34
+  (define-instruction (shrink-env) 34 ; for closed applications
+    (set! *env* (shrink-env *env*)))
+
+  (define-instruction (call n) 35
     (common-call n #f))
 
-  (define-instruction (tail-call n) 35
+  (define-instruction (tail-call n) 36
     (common-call n #t))
   )
 
@@ -232,9 +274,106 @@
   (unless tail?
     (stack-push! *env*)
     (stack-push! *pc*))
-  (if (closure? *acc*)
-      (begin
-        (set! *pc* (closure-code *acc*))
-        (set! *env* (closure-env *acc*))
-        (set! *acc* n))
-      (runtime-error "Attempt to apply non-procedure" *acc*)))
+  (cond
+    [(closure? *acc*)
+     (set! *pc* (closure-code *acc*))
+     (set! *env* (extend-env n (closure-env *acc*)))]
+    [(primitive? *acc*)
+     (apply (primitive-func *acc*)
+            (let loop ([n n]
+                       [args (activation-record-frame *env*)]
+                       [ls '()])
+              (if (zero? n)
+                ls
+                (loop (- n 1)
+                      (cdr args)
+                      (cons (car args) ls)))))]
+    [else
+     (runtime-error "Attempt to apply non-procedure" *acc*)]))
+
+(define (disassemble code addr port)
+  (define (align-right s len)
+    (string-append
+      (make-string (- len (string-length s)) #\space)
+      s))
+  (define (align-left s len)
+    (string-append
+      s
+      (make-string (- len (string-length s)) #\space)))
+
+  (unless (null? code)
+    (display (align-right (number->string addr 16) 6) port)
+    (display ": " port)
+    (let ([ins (instruction-decode (car code))]
+          [size (instruction-size (car code))])
+      (if (> size 1)
+        (display (align-left (symbol->string ins) 16) port)
+        (display (symbol->string ins) port))
+      (set! addr (+ addr size))
+      (case size
+        [(3)
+         (case ins
+           [(goto goto-if-true goto-if-false closure)
+            (display (number->string
+                       (+ addr (+ (cadr code)
+                                  (* 256 (caddr code))))
+                       16) port)]
+           [else
+             (display (cadr code) port)
+             (display " " port)
+             (display (caddr code) port)])
+         (newline port)
+         (disassemble (cdddr code) addr port)]
+        [(2)
+         (display (cadr code) port)
+         (case ins
+           [(const)
+            (display "  ; " port)
+            (write (get-constant (cadr code)) port)]
+           [(global-ref global-set)
+            (display "  ; " port)
+            (display (car (get-global (cadr code))) port)]
+           )
+         (newline port)
+         (disassemble (cddr code) addr port)]
+        [(1)
+         (newline port)
+         (disassemble (cdr code) addr port)]))))
+
+;;;;;;;;;;;;;;;;;;;;;;       primitives         ;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define-syntax add-primitive!
+  (syntax-rules ()
+    [(_ name f)
+     (set-cdr! (list-ref *globals*
+                         (get-global-index 'name))
+               (make-primitive f))]))
+
+(define (add-primitives!)
+  (add-primitive! car car)
+  (add-primitive! cdr cdr)
+  (add-primitive! cons cons)
+  (add-primitive! not not)
+  (add-primitive! list list)
+
+  (add-primitive! null? null?)
+  (add-primitive! list? list?)
+  (add-primitive! eq? eq?)
+  (add-primitive! eqv? eqv?)
+  (add-primitive! equal? equal?)
+
+  (add-primitive! + +)
+  (add-primitive! - -)
+  (add-primitive! * *)
+  (add-primitive! / /)
+  (add-primitive! = =)
+  (add-primitive! > >)
+  (add-primitive! < <)
+  (add-primitive! >= >=)
+  (add-primitive! <= <=)
+
+  ; (add-primitive! map (lambda (x) x))
+  (add-primitive! apply (lambda (x) x))
+  (add-primitive! call/cc (lambda (x) x))
+  (add-primitive! eval (lambda (x) x))
+  )

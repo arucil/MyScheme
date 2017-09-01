@@ -11,12 +11,17 @@
   (define (a-meaning-toplevel e tail?)
     (if (and (pair? e) (eq? (car e) 'define))
       (meaning-define e tail?)
-      (meaning e cenv tail?)))
-  (let rec ([e* e*])
-    (if (null? (cdr e*))
-      (a-meaning-toplevel (car e*) #t)
-      (cons (a-meaning-toplevel (car e*) #f)
-            (rec (cdr e*))))))
+      (meaning e (init-cenv) tail?)))
+
+  (if (null? e*)
+    (instruction-encode 'return)
+    (let rec ([e* e*])
+      (if (null? (cdr e*))
+        (append
+          (a-meaning-toplevel (car e*) #t)
+          (instruction-encode 'return))
+        (let ([m1 (a-meaning-toplevel (car e*) #f)])
+          (append m1 (rec (cdr e*))))))))
 
 (define (meaning e cenv tail?)
   (cond
@@ -45,23 +50,24 @@
 
 (define (meaning-quote c cenv tail?)
   (case c
-    [(#f) (instruction-encode 'const-false)]
-    [(#t) (instruction-encode 'const-true)]
-    [(()) (instruction-encode 'const-null)]
-    [(0)  (instruction-encode 'const-0)]
-    [(1)  (instruction-encode 'const-1)]
+    [(#f) (instruction-encode 'const/false)]
+    [(#t) (instruction-encode 'const/true)]
+    [(()) (instruction-encode 'const/null)]
+    [(0)  (instruction-encode 'const/0)]
+    [(1)  (instruction-encode 'const/1)]
     [else (instruction-encode 'const (get-constant-index c))]))
 
 (define (meaning-if e1 e2 e3 cenv tail?)
-  (let* ([m3 (meaning e3 cenv tail?)]
-         [m2 (append (meaning e2 cenv tail?)
-                    (gen-goto 'goto (length m3)))]
-         [m1 (append (meaning e1 cenv #f)
-                    (gen-goto 'goto-if-false (length m2)))])
-    (append m1 m2 m3)))
+  (let* ([m1 (meaning e1 cenv #f)]
+         [m2 (meaning e2 cenv tail?)]
+         [m3 (meaning e3 cenv tail?)]
+         [m2/goto (append m2 (gen-goto 'goto (length m3)))])
+    (append m1 (gen-goto 'goto-if-false (length m2/goto))
+            m2/goto
+            m3)))
 
 (define (meaning-define e tail?)
-  (if (list? (cadr e))
+  (if (pair? (cadr e))
     ;; (define (f . args) . body)  =>  (set! f (lambda args) . body)
     (meaning `(set! ,(caadr e)
                 (lambda ,(cdadr e)
@@ -100,9 +106,8 @@
   (let loop ([e+ e+])
     (if (null? (cdr e+))
       (meaning (car e+) cenv tail?)
-      (append
-        (meaning (car e+) cenv #f)
-        (loop (cdr e+))))))
+      (let ([m1 (meaning (car e+) cenv #f)])
+        (append m1 (loop (cdr e+)))))))
 
 (define (meaning-cond e+ cenv tail?)
   ;; (cond [e1 . body] ...)
@@ -143,32 +148,44 @@
                   m1*))))))
 
 (define (meaning-lambda args body cenv tail?)
-  (let* ([m1 (meaning-sequence body
-                               (extend-cenv args cenv)
-                               #t)]
-         [size (length m1)]
-         [n (variadic? args)])
+  (let* ([m (append (gen-lambda-body args body cenv #t)
+                    (instruction-encode 'return))]
+         [size (length m)])
     (append (instruction-encode 'closure
                                 (modulo size 256)
                                 (quotient size 256))
-            (if n
-                (instruction-encode 'varfunc n)
-                (instruction-encode 'func (length args)))
-            m1)))
+            m)))
+
+(define (gen-lambda-body args body cenv tail?)
+  (let ([n (variadic? args)])
+    (append 
+      (if n
+        (instruction-encode 'varfunc n)
+        (instruction-encode 'func (length args)))
+      (meaning-sequence
+        body
+        (extend-cenv args cenv)
+        tail?))))
 
 (define (meaning-application e+ cenv tail?)
-  (define (chain-params ls)
-    (if (null? ls)
-        '()
-        (cons (f (car ls))
-              (map-lr f (cdr ls)))))
-  (display "here")
-  (append (append (map-lr (lambda (e)
-                            (append (meaning e cenv #f)
-                                    (instruction-encode 'push)))
-                          (cdr e+)))
-          (meaning (car e+) cenv #f)
-          (instruction-encode (if tail? 'tail-call 'call) (length (cdr e+)))))
+  (let loop ([e* (cdr e+)])
+    (if (null? e*)
+      (if (and (pair? (car e+))
+               (eq? 'lambda (caar e+)))
+        (gen-closed-application (car e+) (length (cdr e+)) cenv tail?)
+        (append (meaning (car e+) cenv #f)
+                (instruction-encode (if tail? 'tail-call 'call)
+                                    (length (cdr e+)))))
+      (append (meaning (car e*) cenv #f)
+              (instruction-encode 'push)
+              (loop (cdr e*))))))
+
+(define (gen-closed-application e argc cenv tail?)
+  (append (instruction-encode 'extend-env argc)
+          (gen-lambda-body (cadr e) (cddr e) cenv tail?)
+          (if tail?
+            '()
+            (instruction-encode 'shrink-env))))
 
 ;;;;;;;;;;;;;;;;;;  auxiliary functions
 
@@ -195,14 +212,16 @@
 
 (define (extend-cenv v* cenv)
   (letrec ([f (lambda (v*)
-                (if (and (pair? v*)
-                         (not (null? (cdr v*))))
-                  (set-cdr! v* (cons (cdr v*) '()))))])
+                (cond
+                  [(null? v*) '()]
+                  [(symbol? v*) (cons v* '())]
+                  [else
+                    (cons (car v*) (f (cdr v*)))]))])
     (cons (f v*) cenv)))
 
 (define (variadic? v*)
   (let loop ([v* v*] [i 0])
     (cond
      [(null? v*) #f]
-     [(symbol? v*) i]
+     [(atom? v*) i]
      [else (loop (cdr v*) (+ i 1))])))
