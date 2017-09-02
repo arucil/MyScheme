@@ -420,4 +420,7 @@
   (add-primitive! apply (lambda (x) x))
   (add-primitive! call/cc (lambda (x) x))
   (add-primitive! eval (lambda (x) x))
+
+  (add-primitive! display display)
+  (add-primitive! newline newline)
   )
