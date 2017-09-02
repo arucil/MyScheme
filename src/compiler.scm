@@ -1,10 +1,6 @@
 
 (load "define.scm")
 
-(define (compile-error . args)
-  (error 'compile "compile error" args)
-  'stub)
-
 ;;;;;;;;;;;;;;;;;;;;        compile        ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (meaning-toplevel e*)
@@ -130,7 +126,7 @@
   ;; =>
   ;; ((lambda (name ...) . body) value ...)
   (meaning `((lambda ,(map car vv*) . ,body)
-             ,(map cadr vv*))
+             . ,(map cadr vv*))
            cenv tail?))
 
 (define (meaning-and/or e* cenv tail? is-and?)

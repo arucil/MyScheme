@@ -1,15 +1,17 @@
 
-;;;;;;;;;;;;;;;;;;                       ;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;           miscellaneous            ;;;;;;;;;;;;;;;;;;
 
-(define (runtime-error)
-  'stub)
+(define error-tag "Error")
+
+(define (runtime-error . args)
+  (*exit* args))
+
+(define (compile-error . args)
+  (*exit* args))
 
 (define (initialize!)
   (init-constants!)
-  (init-globals!)
-  (init-stack!)
-  ;; initialize primitives
-  )
+  (init-globals!))
 
 ;;;;;;;;;;;;;;;;;;             constants         ;;;;;;;;;;;;;;;;;;;;;
 
@@ -35,8 +37,13 @@
 
 (define *stack*)
 
-(define (init-stack!)
+(define (empty-stack!)
   (set! *stack* '()))
+
+(define (init-stack!)
+  (empty-stack!)
+  (stack-push! #f) ; dummy env
+  (stack-push! (instruction-encode 'exit))) ; pc for exiting program
 
 (define (stack-push! val)
   (set! *stack* (cons val *stack*)))
@@ -56,15 +63,15 @@
 
 (define-record-type activation-record (fields next frame))
 
-(define (local-reference i j)
-  (let loop ([i i] [env *env*])
+(define (local-reference i j env)
+  (let loop ([i i] [env env])
     (if (zero? i)
       (list-ref (activation-record-frame env) j)
       (loop (- i 1)
             (activation-record-next env)))))
 
-(define (local-assign i j v)
-  (let loop ([i i] [env *env*])
+(define (local-assign i j v env)
+  (let loop ([i i] [env env])
     (if (zero? i)
       (set-car! (list-tail (activation-record-frame env) j) v)
       (loop (- i 1)
@@ -82,6 +89,9 @@
 
 (define (shrink-env env)
   (activation-record-next env))
+
+(define (activation-frame-size env)
+  (length (activation-record-frame env)))
 
 ;;;;;;;;;;;;;;;;           globals              ;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -129,6 +139,8 @@
 (define *env*)
 
 (define *pc*)
+
+(define *exit*)
 
 ;;;;;;;;;;;;;;;;;         closure          ;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -201,18 +213,18 @@
   ;; reference
 
   (define-instruction (shallow-ref i) 10
-    (set! *acc* (local-reference 0 i)))
+    (set! *acc* (local-reference 0 i *env*)))
   (define-instruction (deep-ref i j) 11
-    (set! *acc* (local-reference i j)))
+    (set! *acc* (local-reference i j *env*)))
   (define-instruction (global-ref i) 12
     (set! *acc* (global-reference i)))
 
   ;; assignment
 
   (define-instruction (shallow-set i) 13
-    (local-assign 0 i *acc*))
+    (local-assign 0 i *acc* *env*))
   (define-instruction (deep-set i j) 14
-    (local-assign i j *acc*))
+    (local-assign i j *acc* *env*))
   (define-instruction (global-set i) 15
     (global-assign i *acc*))
 
@@ -232,28 +244,38 @@
   ;; closure
 
   (define-instruction (closure offset1 offset2) 25
-    (set! *acc* (make-closure *env* *pc*)))
+    (set! *acc* (make-closure *env* *pc*))
+    (common-goto offset1 offset2))
 
   (define-instruction (func arity) 26     ; regular function
-    'stub)
+    (unless (= (- (activation-frame-size *env*) 1)
+               arity)
+      (runtime-error "Incorrect arity" arity size)))
 
   (define-instruction (varfunc arity) 27  ; variadic function
-    'stub)
+    (let ([size (- (activation-frame-size *env*) 1)])
+      (if (>= size arity)
+          (do ([i (- size 1) (- i 1)]
+               [ls '() (cons (local-reference 0 i *env*) ls)])
+              [(< i arity)
+               (local-assign 0 arity ls *env*)])
+          (runtime-error "Incorrect arity for variadic procedure" arity size ))))
 
   ;; application
 
   (define-instruction (exit) 30
-    'stub)
+    (*exit* *acc*))
 
   (define-instruction (return) 31
-    (set! *pc* (stack-pop!))
-    (set! *env* (stack-pop!)))
+    (return))
 
   (define-instruction (push) 32 ; save argument
     (stack-push! *acc*))
 
   (define-instruction (extend-env n) 33 ; for closed applications
-    (set! *env* (extend-env n *env*)))
+    (set! *env* (store-fixed-arguments
+                  n
+                  (extend-env n *env*))))
 
   (define-instruction (shrink-env) 34 ; for closed applications
     (set! *env* (shrink-env *env*)))
@@ -271,25 +293,47 @@
   (set! *pc* (list-tail *pc* (+ offset1 (* 256 offset2)))))
 
 (define (common-call n tail?)
-  (unless tail?
-    (stack-push! *env*)
-    (stack-push! *pc*))
   (cond
     [(closure? *acc*)
-     (set! *pc* (closure-code *acc*))
-     (set! *env* (extend-env n (closure-env *acc*)))]
+     (let ([env (store-fixed-arguments
+                  n
+                  (extend-env n (closure-env *acc*)))])
+
+       ;; save caller's context
+       (unless tail?
+         (stack-push! *env*)
+         (stack-push! *pc*))
+
+       (set! *pc* (closure-code *acc*))
+       (set! *env* env))]
     [(primitive? *acc*)
-     (apply (primitive-func *acc*)
-            (let loop ([n n]
-                       [args (activation-record-frame *env*)]
-                       [ls '()])
-              (if (zero? n)
-                ls
-                (loop (- n 1)
-                      (cdr args)
-                      (cons (car args) ls)))))]
+     (let loop ([n n]
+                [ls '()])
+       (if (zero? n)
+           (begin
+             (unless tail?
+               (stack-push! *env*)
+               (stack-push! *pc*))
+             (set! *acc*
+               (apply (primitive-func *acc*)
+                      ls))
+             (return))
+           (loop (- n 1)
+                 (cons (stack-pop!) ls))))]
     [else
      (runtime-error "Attempt to apply non-procedure" *acc*)]))
+
+(define (store-fixed-arguments n env)
+  (do ([i (- n 1) (- i 1)])
+      [(negative? i)
+       env]
+    (local-assign 0 i (stack-pop!) env)))
+
+(define (return)
+  (set! *pc* (stack-pop!))
+  (set! *env* (stack-pop!)))
+
+
 
 (define (disassemble code addr port)
   (define (align-right s len)

@@ -19,9 +19,12 @@
                     (disassemble (meaning-toplevel 'expr) 0 p)))])
          (unless (equal? (string-trim d)
                          (string-trim val))
-           (error 'test "test failed"
-                  'expr
-                  d val))))]))
+           (display 'expr)
+           (display "\n--------- got:\n")
+           (display d)
+           (display "--------- expected:\n")
+           (display val)
+           (error 'test "test failed"))))]))
 
 ;;; tests
 
@@ -255,7 +258,7 @@
       "
      0: closure         1A
      3: func            3
-     5: closure          12
+     5: closure         12
      8: func            2
      A: const/0
      B: shallow-set     0
@@ -447,4 +450,69 @@
     1F: shallow-ref     0
     21: tail-call       0
     23: return
+      ")
+
+;; let
+
+(test ((let () 1)
+       (let () 1 2))
+      "
+     0: extend-env      0
+     2: func            0
+     4: const/1
+     5: shrink-env
+     6: extend-env      0
+     8: func            0
+     A: const/1
+     B: const           0  ; 2
+     D: return
+      ")
+
+(test ((let ([x 1])
+         (cons x x)))
+      "
+     0: const/1
+     1: push
+     2: extend-env      1
+     4: func            1
+     6: shallow-ref     0
+     8: push
+     9: shallow-ref     0
+     B: push
+     C: global-ref      2  ; cons
+     E: tail-call       2
+    10: return
+      ")
+
+(test ((let ([x car]
+             [y (cons 'a '(b))])
+         car
+         (cons x
+               (cons y
+                     '()))))
+      "
+     0: global-ref      0  ; car
+     2: push
+     3: const           1  ; a
+     5: push
+     6: const           0  ; (b)
+     8: push
+     9: global-ref      2  ; cons
+     B: call            2
+     D: push
+     E: extend-env      2
+    10: func            2
+    12: global-ref      0  ; car
+    14: shallow-ref     0
+    16: push
+    17: shallow-ref     1
+    19: push
+    1A: const/null
+    1B: push
+    1C: global-ref      2  ; cons
+    1E: call            2
+    20: push
+    21: global-ref      2  ; cons
+    23: tail-call       2
+    25: return
       ")
