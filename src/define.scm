@@ -61,7 +61,7 @@
 ;;     v              (...)
 ;;   (local0 local1 ...)
 
-(define-record-type activation-record (fields next frame))
+(define-record-type activation-record (fields (mutable next) frame))
 
 (define (local-reference i j env)
   (let loop ([i i] [env env])
@@ -81,7 +81,7 @@
   (define (make-list n ls)
     (if (zero? n)
       ls
-      (make-list (- n 1) (cons #f ls))))
+      (make-list (- n 1) (cons '() ls))))
 
   (make-activation-record
     env
@@ -292,36 +292,28 @@
 (define (common-goto offset1 offset2)
   (set! *pc* (list-tail *pc* (+ offset1 (* 256 offset2)))))
 
-(define (common-call n tail?)
+(define (invoke env)
   (cond
-    [(closure? *acc*)
-     (let ([env (store-fixed-arguments
-                  n
-                  (extend-env n (closure-env *acc*)))])
+   [(closure? *acc*)
+    (set! *pc* (closure-code *acc*))
+    (activation-record-next-set! env (closure-env *acc*))
+    (set! *env* env)]
+   [(primitive? *acc*)
+    ((primitive-func *acc*)
+     ;; remove last ()
+     (apply apply list
+            (activation-record-frame env)))]
+   [else
+    (runtime-error "Attempt to apply non-procedure" *acc*)]))
 
-       ;; save caller's context
-       (unless tail?
-         (stack-push! *env*)
-         (stack-push! *pc*))
-
-       (set! *pc* (closure-code *acc*))
-       (set! *env* env))]
-    [(primitive? *acc*)
-     (let loop ([n n]
-                [ls '()])
-       (if (zero? n)
-           (begin
-             (unless tail?
-               (stack-push! *env*)
-               (stack-push! *pc*))
-             (set! *acc*
-               (apply (primitive-func *acc*)
-                      ls))
-             (return))
-           (loop (- n 1)
-                 (cons (stack-pop!) ls))))]
-    [else
-     (runtime-error "Attempt to apply non-procedure" *acc*)]))
+(define (common-call n tail?)
+  (let ([env (store-fixed-arguments
+              n
+              (extend-env n #f))])
+    (unless tail?
+      (stack-push! *env*)
+      (stack-push! *pc*))
+    (invoke env)))
 
 (define (store-fixed-arguments n env)
   (do ([i (- n 1) (- i 1)])
@@ -387,38 +379,71 @@
 ;;;;;;;;;;;;;;;;;;;;;;       primitives         ;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define-syntax add-primitive!
-  (syntax-rules ()
+  (syntax-rules (..)
     [(_ name f)
      (set-cdr! (list-ref *globals*
                          (get-global-index 'name))
-               (make-primitive f))]))
+               (make-primitive f))]
+    [(_ name f arity)
+     (add-primitive! name
+                     (lambda (args)
+                       (if (= (length args) arity)
+                           (begin
+                             (set! *acc* (apply f args))
+                             (return))
+                           (runtime-error "Incorrect arity for" 'name))))]
+    [(_ name f arity ..)
+     (add-primitive! name
+                     (lambda (args)
+                       (if (>= (length args) arity)
+                           (begin
+                             (set! *acc* (apply f args))
+                             (return))
+                           (runtime-error "Incorrect arity for" 'name))))]))
 
 (define (add-primitives!)
-  (add-primitive! car car)
-  (add-primitive! cdr cdr)
-  (add-primitive! cons cons)
-  (add-primitive! not not)
-  (add-primitive! list list)
+  (add-primitive! car car 1)
+  (add-primitive! cdr cdr 1)
+  (add-primitive! cons cons 2)
+  (add-primitive! not not 1)
+  (add-primitive! list list 0 ..)
 
-  (add-primitive! null? null?)
-  (add-primitive! list? list?)
-  (add-primitive! eq? eq?)
-  (add-primitive! eqv? eqv?)
-  (add-primitive! equal? equal?)
+  (add-primitive! null? null? 1)
+  (add-primitive! list? list? 1)
+  (add-primitive! eq? eq? 2)
+  (add-primitive! eqv? eqv? 2)
+  (add-primitive! equal? equal? 2)
 
-  (add-primitive! + +)
-  (add-primitive! - -)
-  (add-primitive! * *)
-  (add-primitive! / /)
-  (add-primitive! = =)
-  (add-primitive! > >)
-  (add-primitive! < <)
-  (add-primitive! >= >=)
-  (add-primitive! <= <=)
+  (add-primitive! + + 0 ..)
+  (add-primitive! - - 1 ..)
+  (add-primitive! * * 0 ..)
+  (add-primitive! / / 1 ..)
+  (add-primitive! = = 2 ..)
+  (add-primitive! > > 2 ..)
+  (add-primitive! < < 2 ..)
+  (add-primitive! >= >= 2 ..)
+  (add-primitive! <= <= 2 ..)
 
   ; (add-primitive! map (lambda (x) x))
-  (add-primitive! apply (lambda (x) x))
+  (add-primitive! apply
+                  (lambda (args)
+                    (if (< (length args) 2)
+                        (runtime-error "Incorrect arity for" 'apply)
+                        (let loop ([ls (cdr args)]
+                                   [size 0])
+                          (if (null? (cdr ls))
+                              (begin
+                                (for-each stack-push! (car ls))
+                                (set! *acc* (car args))
+                                (common-call (+ size (length (car ls)))
+                                             #t))
+                              (begin
+                                (stack-push! (car ls))
+                                (loop (cdr ls)
+                                      (+ size 1))))))))
+
   (add-primitive! call/cc (lambda (x) x))
+
   (add-primitive! eval (lambda (x) x))
 
   (add-primitive! display display)

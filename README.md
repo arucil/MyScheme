@@ -5,6 +5,7 @@ A simple Scheme compiler &amp; virtual machine
 
 - [x] First-class procedure
 - [x] Proper tail call
+- [ ] `eval`
 - [ ] First-class continuation (`call/cc`)
 - [ ] Hygienic macro
 
