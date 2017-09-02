@@ -1,13 +1,6 @@
 
 (load "compiler.scm")
 
-(define (string-trim s)
-  (do ([i 0 (+ i 1)])
-    [(not (char-whitespace? (string-ref s i)))
-     (do ([j (- (string-length s) 1) (- j 1)])
-       [(not (char-whitespace? (string-ref s j)))
-        (substring s i (+ j 1))
-        ])]))
 
 (define-syntax test
   (syntax-rules ()
@@ -184,7 +177,7 @@
     1B: goto            22
     1E: const           1  ; 3
     20: const           2  ; 4
-    22: global-ref      22  ; else
+    22: global-ref      27  ; else
     24: goto-if-false   2B
     27: const/true
     28: goto            2C
@@ -220,7 +213,7 @@
      0: closure         2C
      3: func            1
      5: shallow-ref     0
-     7: global-ref      22  ; y
+     7: global-ref      27  ; y
      9: global-ref      0  ; car
      B: closure         2B
      E: func            2
@@ -239,7 +232,7 @@
     28: global-ref      0  ; car
     2A: return
     2B: return
-    2C: global-ref      23  ; x
+    2C: global-ref      28  ; x
     2E: global-ref      1  ; cdr
     30: return
       "
@@ -271,7 +264,7 @@
     17: global-set      0  ; car
     19: return
     1A: const           1  ; 3
-    1C: global-set      22  ; x
+    1C: global-set      27  ; x
     1E: const           2  ; \"CDR\"
     20: global-set      1  ; cdr
     22: return
@@ -288,13 +281,13 @@
       "
      0: const/1
      1: const           0  ; \"12A\"
-     3: global-set      22  ; x
+     3: global-set      27  ; x
      5: const           1  ; 3
      7: const           2  ; 2
-     9: global-set      23  ; y
-     B: global-ref      24  ; z
+     9: global-set      28  ; y
+     B: global-ref      29  ; z
      D: const           3  ; (a . b)
-     F: global-set      24  ; z
+     F: global-set      29  ; z
     11: return
       ")
 
@@ -308,19 +301,19 @@
      5: shallow-ref     0
      7: shallow-ref     0
      9: return
-     A: global-set      22  ; foo
+     A: global-set      27  ; foo
      C: closure         16
      F: func            0
     11: global-ref      0  ; car
     13: const           0  ; x
     15: return
-    16: global-set      23  ; bar
-    18: global-ref      24  ; f
+    16: global-set      28  ; bar
+    18: global-ref      29  ; f
     1A: closure         22
     1D: func            1
     1F: shallow-ref     0
     21: return
-    22: global-set      24  ; f
+    22: global-set      29  ; f
     24: return
       ")
 
@@ -332,21 +325,21 @@
      3: func            2
      5: shallow-ref     1
      7: shallow-ref     0
-     9: global-ref      22  ; f
+     9: global-ref      27  ; f
      B: return
-     C: global-set      22  ; f
+     C: global-set      27  ; f
      E: closure         16
     11: varfunc         0
     13: shallow-ref     0
     15: return
-    16: global-set      23  ; g
+    16: global-set      28  ; g
     18: closure         24
     1B: varfunc         2
     1D: shallow-ref     1
     1F: shallow-ref     2
     21: shallow-ref     0
     23: return
-    24: global-set      23  ; g
+    24: global-set      28  ; g
     26: return
       ")
 
@@ -515,4 +508,58 @@
     21: global-ref      2  ; cons
     23: tail-call       2
     25: return
+      ")
+
+;; letrec
+
+(test ((letrec () 1)
+       (letrec () 1 2)
+       (letrec ([v 1] [x 2])
+         (x v)))
+      "
+     0: extend-env      0
+     2: func            0
+     4: const/1
+     5: shrink-env
+     6: extend-env      0
+     8: func            0
+     A: const/1
+     B: const           0  ; 2
+     D: shrink-env
+     E: const/false
+     F: push
+    10: const/false
+    11: push
+    12: extend-env      2
+    14: func            2
+    16: const/1
+    17: shallow-set     0
+    19: const           0  ; 2
+    1B: shallow-set     1
+    1D: shallow-ref     0
+    1F: push
+    20: shallow-ref     1
+    22: tail-call       1
+    24: return
+      ")
+
+(test ((letrec [(f (lambda (ls)
+                     (if ls f ls)))]
+         f))
+      "
+     0: const/false
+     1: push
+     2: extend-env      1
+     4: func            1
+     6: closure         19
+     9: func            1
+     B: shallow-ref     0
+     D: goto-if-false   16
+    10: deep-ref        1 0
+    13: goto            18
+    16: shallow-ref     0
+    18: return
+    19: shallow-set     0
+    1B: shallow-ref     0
+    1D: return
       ")

@@ -13,6 +13,16 @@
   (init-constants!)
   (init-globals!))
 
+
+(define (string-trim s)
+  (do ([i 0 (+ i 1)])
+      [(or (>= i (string-length s))
+           (not (char-whitespace? (string-ref s i))))
+       (do ([j (- (string-length s) 1) (- j 1)])
+           [(or (< j i)
+                (not (char-whitespace? (string-ref s j))))
+            (substring s i (+ j 1))])]))
+
 ;;;;;;;;;;;;;;;;;;             constants         ;;;;;;;;;;;;;;;;;;;;;
 
 (define *constants*)
@@ -445,6 +455,15 @@
 
   (add-primitive! display display 1)
   (add-primitive! newline newline 0)
+
+  (add-primitive! string-ref string-ref 2)
+  (add-primitive! string-length string-length 1)
+
+  (add-primitive! exit
+                  (lambda (args)
+                    (if (not (= 1 (length args)))
+                        (runtime-error "Incorrect arity for" 'exit)
+                        (*exit* (car args)))))
 
   ; (add-primitive! map (lambda (x) x))
   (add-primitive! apply

@@ -40,6 +40,6 @@
   (let loop ()
     (init-runtime!)
     (display "myscheme> ")
-    (write (run (meaning-toplevel (list (read)))))
+    (write (run (meaning-toplevel (cons (read) '()))))
     (newline)
     (loop)))
