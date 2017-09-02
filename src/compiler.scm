@@ -41,6 +41,7 @@
           [(or)     (meaning-and/or (cdr e) cenv tail? #f)]
           [(cond)   (meaning-cond (cdr e) cenv tail?)]
           [(let)    (meaning-let (cadr e) (cddr e) cenv tail?)]
+          [(letrec) (meaning-letrec (cadr e) (cddr e) cenv tail?)]
           [else     (meaning-application e cenv tail?)])
         (compile-error "Invalid syntax" e))]))
 
@@ -127,6 +128,18 @@
   ;; ((lambda (name ...) . body) value ...)
   (meaning `((lambda ,(map car vv*) . ,body)
              . ,(map cadr vv*))
+           cenv tail?))
+
+(define (meaning-letrec vv* body cenv tail?)
+  ;; (letrec ([name value] ...) . body)
+  ;; =>
+  ;; ((lambda (name ...) (set! name value) ... . body) #f ...)
+  (meaning `((lambda ,(map car vv*)
+               ,@(map (lambda (p)
+                        `(set! ,(car p) ,(cadr p)))
+                      vv*)
+               ,@body)
+             ,@(map not vv*))
            cenv tail?))
 
 (define (meaning-and/or e* cenv tail? is-and?)

@@ -405,11 +405,15 @@
   (add-primitive! car car 1)
   (add-primitive! cdr cdr 1)
   (add-primitive! cons cons 2)
-  (add-primitive! not not 1)
-  (add-primitive! list list 0 ..)
 
   (add-primitive! null? null? 1)
   (add-primitive! list? list? 1)
+  (add-primitive! pair? pair? 1)
+  (add-primitive! number? number? 1)
+  (add-primitive! boolean? boolean? 1)
+  (add-primitive! string? string? 1)
+  (add-primitive! char? char? 1)
+
   (add-primitive! eq? eq? 2)
   (add-primitive! eqv? eqv? 2)
   (add-primitive! equal? equal? 2)
@@ -423,6 +427,9 @@
   (add-primitive! < < 2 ..)
   (add-primitive! >= >= 2 ..)
   (add-primitive! <= <= 2 ..)
+
+  (add-primitive! display display 1)
+  (add-primitive! newline newline 0)
 
   ; (add-primitive! map (lambda (x) x))
   (add-primitive! apply
@@ -444,8 +451,10 @@
 
   (add-primitive! call/cc (lambda (x) x))
 
-  (add-primitive! eval (lambda (x) x))
-
-  (add-primitive! display display)
-  (add-primitive! newline newline)
+  (add-primitive! eval
+                  (lambda (args)
+                    (if (not (= 1 (length args)))
+                        (runtime-error "Incorrect arity for" 'eval)
+                        (set! *pc*
+                          (meaning-toplevel args)))))
   )
