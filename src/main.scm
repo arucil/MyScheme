@@ -14,11 +14,5 @@
          (initialize!)
          (for-each
           (lambda (filename)
-            (with-input-from-file filename
-              (lambda ()
-                (run-toplevel
-                 (let rec ([e (read)])
-                   (if (eof-object? e)
-                       '()
-                       (cons e (rec (read)))))))))
+            (run-toplevel (load-file filename)))
           (cdr (command-line)))))))

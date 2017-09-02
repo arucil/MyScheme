@@ -132,6 +132,16 @@
 (define (get-global i)
   (list-ref *globals* i))
 
+;;;;;;;;;;;;;;;;         continuation            ;;;;;;;;;;;;;;;;;;;;;;
+
+(define-record-type continuation (fields stack))
+
+(define (invoke-continuation k env)
+  (set! *acc* (local-reference 0 0 env))
+  (set! *stack* (continuation-stack k))
+  (return) ; pop pc and env
+  )
+
 ;;;;;;;;;;;;;;;;;          registers            ;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define *acc*)
@@ -149,6 +159,12 @@
 ;;;;;;;;;;;;;;;;;         primitive          ;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define-record-type primitive (fields func))
+
+(define (invoke-primitive p env)
+  ((primitive-func p)
+   ;; remove last ()
+   (apply apply list
+          (activation-record-frame env))))
 
 ;;;;;;;;;;;;;;;;;            instruction set       ;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -299,10 +315,9 @@
     (activation-record-next-set! env (closure-env *acc*))
     (set! *env* env)]
    [(primitive? *acc*)
-    ((primitive-func *acc*)
-     ;; remove last ()
-     (apply apply list
-            (activation-record-frame env)))]
+    (invoke-primitive *acc* env)]
+   [(continuation? *acc*)
+    (invoke-continuation *acc* env)]
    [else
     (runtime-error "Attempt to apply non-procedure" *acc*)]))
 
@@ -449,7 +464,14 @@
                                 (loop (cdr ls)
                                       (+ size 1))))))))
 
-  (add-primitive! call/cc (lambda (x) x))
+  (add-primitive! call/cc
+                  (lambda (args)
+                    (if (not (= 1 (length args)))
+                        (runtime-error "Incorrect arity for" 'call/cc)
+                        (begin
+                          (stack-push! (make-continuation *stack*))
+                          (set! *acc* (car args))
+                          (common-call 1 #t)))))
 
   (add-primitive! eval
                   (lambda (args)
