@@ -430,6 +430,8 @@
   (add-primitive! car car 1)
   (add-primitive! cdr cdr 1)
   (add-primitive! cons cons 2)
+  (add-primitive! set-car! set-car! 2)
+  (add-primitive! set-cdr! set-cdr! 2)
 
   (add-primitive! null? null? 1)
   (add-primitive! list? list? 1)
