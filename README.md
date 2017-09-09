@@ -3,11 +3,14 @@ A simple Scheme compiler &amp; virtual machine
 
 # Features
 
-- [x] First-class procedure
-- [x] Proper tail call
-- [x] `eval`
-- [x] First-class continuation (`call/cc`)
-- [ ] Hygienic macro
+- First-class procedure
+- Proper tail call
+- `Eval` function
+- Quasiquote
+- First-class continuation (`call/cc`)
+
+# TODO
+- Hygienic macro
 
 # Run
 

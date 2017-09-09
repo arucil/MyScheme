@@ -31,28 +31,38 @@
    [else
     (if (pair? e)
         (case (car e)
-          [(quote)  (meaning-quote (cadr e) cenv tail?)]
-          [(if)     (meaning-if (cadr e) (caddr e) (cadddr e) cenv tail?)]
-          [(set!)   (meaning-set (cadr e) (caddr e) cenv tail?)]
-          [(define) (compile-error "define only allowed at toplevel")]
-          [(lambda) (meaning-lambda (cadr e) (cddr e) cenv tail?)]
-          [(begin)  (meaning-sequence (cdr e) cenv tail?)]
-          [(and)    (meaning-and/or (cdr e) cenv tail? #t)]
-          [(or)     (meaning-and/or (cdr e) cenv tail? #f)]
-          [(cond)   (meaning-cond (cdr e) cenv tail?)]
-          [(let)    (meaning-let (cadr e) (cddr e) cenv tail?)]
-          [(letrec) (meaning-letrec (cadr e) (cddr e) cenv tail?)]
-          [else     (meaning-application e cenv tail?)])
+          [(quote)      (meaning-quote (cadr e) cenv tail?)]
+          [(if)         (meaning-if (cadr e) (caddr e) (cadddr e) cenv tail?)]
+          [(set!)       (meaning-set (cadr e) (caddr e) cenv tail?)]
+          [(define)     (compile-error "define only allowed at toplevel")]
+          [(lambda)     (meaning-lambda (cadr e) (cddr e) cenv tail?)]
+          [(begin)      (meaning-sequence (cdr e) cenv tail?)]
+          [(and)        (meaning-and/or (cdr e) cenv tail? #t)]
+          [(or)         (meaning-and/or (cdr e) cenv tail? #f)]
+          [(cond)       (meaning-cond (cdr e) cenv tail?)]
+          [(let)        (meaning-let (cadr e) (cddr e) cenv tail?)]
+          [(letrec)     (meaning-letrec (cadr e) (cddr e) cenv tail?)]
+          [(quasiquote) (meaning-quasiquote (cadr e) cenv tail?)]
+          [else         (meaning-application e cenv tail?)])
         (compile-error "Invalid syntax" e))]))
 
 (define (meaning-quote c cenv tail?)
-  (case c
-    [(#f) (instruction-encode 'const/false)]
-    [(#t) (instruction-encode 'const/true)]
-    [(()) (instruction-encode 'const/null)]
-    [(0)  (instruction-encode 'const/0)]
-    [(1)  (instruction-encode 'const/1)]
-    [else (instruction-encode 'const (get-constant-index c))]))
+  (if (or (boolean? c)
+          (number? c)
+          (pair? c)
+          (null? c)
+          (vector? c)
+          (string? c)
+          (char? c)
+          (symbol? c))
+      (case c
+        [(#f) (instruction-encode 'const/false)]
+        [(#t) (instruction-encode 'const/true)]
+        [(()) (instruction-encode 'const/null)]
+        [(0)  (instruction-encode 'const/0)]
+        [(1)  (instruction-encode 'const/1)]
+        [else (instruction-encode 'const (get-constant-index c))])
+      (compile-error "Invalid quotation" c)))
 
 (define (meaning-if e1 e2 e3 cenv tail?)
   (let* ([m1 (meaning e1 cenv #f)]
@@ -195,6 +205,57 @@
           (if tail?
             '()
             (instruction-encode 'shrink-env))))
+
+(define (meaning-quasiquote e cenv tail?)
+  (let* ([const? #t]
+         [exp (let f ([e e] [lv 0])
+                (cond
+                 [(or (boolean? e)
+                      (number? e)
+                      (string? e)
+                      (char? e))
+                  e]
+                 [(null? e)
+                  ''()]
+                 [(symbol? e)
+                  `',e]
+                 [(vector? e)
+                  `(list->vector ,(f (vector->list e) lv))]
+                 [(pair? e)
+                  (cond
+                   [(let ([e1 (car e)])
+                      (and (pair? e1)
+                           (pair? (cdr e1))
+                           (null? (cddr e1))
+                           (eq? (car e1) 'unquote-splicing)))
+                    (if (zero? lv)
+                        (begin
+                          (set! const? #f)
+                          `(append ,(cadar e) ,(f (cdr e) lv)))
+                        (list 'cons (list ''unquote-splicing (f (cadar e) (- lv 1)))
+                              (f (cdr e) lv)))]
+                   [(and (pair? (cdr e))
+                         (null? (cddr e)))
+                    (case (car e)
+                      [(quasiquote)
+                       (list 'list ''quasiquote (f (cadr e) (+ lv 1)))]
+                      [(unquote)
+                       (if (zero? lv)
+                           (begin
+                             (set! const? #f)
+                             (cadr e))
+                           (list 'list ''unquote (f (cadr e) (- lv 1))))]
+                      [else
+                       (list 'cons (f (car e) lv)
+                             (f (cdr e) lv))])]
+                   [else
+                    (list 'cons (f (car e) lv)
+                          (f (cdr e) lv))])]
+                 [else
+                  (compile-error "Invalid quasiquotation" e)]))])
+    (if const?
+        (meaning-quote e cenv tail?)
+        (meaning exp cenv tail?))))
 
 ;;;;;;;;;;;;;;;;;;  auxiliary functions
 

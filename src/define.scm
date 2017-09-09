@@ -454,12 +454,27 @@
   (add-primitive! < < 2 ..)
   (add-primitive! >= >= 2 ..)
   (add-primitive! <= <= 2 ..)
+  (add-primitive! abs abs 1)
+  (add-primitive! sqrt sqrt 1)
 
   (add-primitive! display display 1)
   (add-primitive! newline newline 0)
 
+  (add-primitive! string string 0 ..)
+  (add-primitive! make-string make-string 1)
   (add-primitive! string-ref string-ref 2)
+  (add-primitive! string-set! string-set! 3)
   (add-primitive! string-length string-length 1)
+  (add-primitive! string->list string->list 1)
+  (add-primitive! list->string list->string 1)
+
+  (add-primitive! vector vector 0 ..)
+  (add-primitive! make-vector make-vector 1)
+  (add-primitive! vector-ref vector-ref 2)
+  (add-primitive! vector-set! vector-set! 3)
+  (add-primitive! vector-length vector-length 1)
+  (add-primitive! vector->list vector->list 1)
+  (add-primitive! list->vector list->vector 1)
 
   (add-primitive! exit
                   (lambda (args)

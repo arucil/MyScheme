@@ -47,6 +47,26 @@
 (test ('"Hello") "Hello")
 (test ('#\a) #\a)
 
+;; quasiquote
+
+(test (`(list ,(+ 1 2) 4))
+      '(list 3 4))
+(test ((let ([name 'a])
+         `(list ,name ',name)))
+      '(list a 'a))
+(test (`(a ,(+ 1 2) ,@(map abs '(4 -5 6)) b))
+      '(a 3 4 5 6 b))
+(test (`((foo ,(- 10 3)) ,@(cdr '(c)) . ,(car '(cons))))
+      '((foo 7) . cons))
+(test (`#(10 5 ,(sqrt 4) ,@(map sqrt '(16 9)) 8))
+      '#(10 5 2 4 3 8))
+(test (`(a `(b ,(+ 1 2) ,(foo ,(+ 1 3) d) e) f))
+      '(a `(b ,(+ 1 2) ,(foo 4 d) e) f))
+(test ((let ([name1 'x]
+             [name2 'y])
+         `(a `(b ,,name1 ,',name2 d) e)))
+      '(a `(b ,x ,'y d) e))
+
 ;; recursion
 
 (test ((define (fact x)
@@ -139,6 +159,23 @@
              (apply list '(a b c))
              (apply list 'a 'b '(c d))))
       '(1 4 4 4 3 (a b c) (a b c d)))
+
+;; append
+
+(test ((list (append '(a b) (list 'c))
+             (append)
+             (append '(a b))
+             (append '(a b) 'c)
+             (append 'a)
+             (append '() 'a)
+             (append '() '() 'a)))
+      '((a b c)
+        ()
+        (a b)
+        (a b . c)
+        a
+        a
+        a))
 
 ;; map
 
@@ -270,3 +307,4 @@
                  (box1 'get))))
        )
       '(33 44))
+
