@@ -24,16 +24,6 @@
 (define (list . x)
   x)
 
-(define last-pair
-  (letrec ([f (lambda (ls)
-                (if (null? (cdr ls))
-                    ls
-                    (f (cdr ls))))])
-    (lambda (ls)
-      (if (null? ls)
-          '()
-          (f ls)))))
-
 (define append
   (letrec ([f (lambda (ls1 ls*)
                 (cond

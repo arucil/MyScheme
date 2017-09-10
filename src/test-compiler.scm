@@ -177,7 +177,7 @@
     1B: goto            22
     1E: const           1  ; 3
     20: const           2  ; 4
-    22: global-ref      32  ; else
+    22: global-ref      46  ; else
     24: goto-if-false   2B
     27: const/true
     28: goto            2C
@@ -213,7 +213,7 @@
      0: closure         2C
      3: func            1
      5: shallow-ref     0
-     7: global-ref      32  ; y
+     7: global-ref      46  ; y
      9: global-ref      0  ; car
      B: closure         2B
      E: func            2
@@ -232,7 +232,7 @@
     28: global-ref      0  ; car
     2A: return
     2B: return
-    2C: global-ref      33  ; x
+    2C: global-ref      47  ; x
     2E: global-ref      1  ; cdr
     30: return
       "
@@ -264,7 +264,7 @@
     17: global-set      0  ; car
     19: return
     1A: const           1  ; 3
-    1C: global-set      32  ; x
+    1C: global-set      46  ; x
     1E: const           2  ; \"CDR\"
     20: global-set      1  ; cdr
     22: return
@@ -281,13 +281,13 @@
       "
      0: const/1
      1: const           0  ; \"12A\"
-     3: global-set      32  ; x
+     3: global-set      46  ; x
      5: const           1  ; 3
      7: const           2  ; 2
-     9: global-set      33  ; y
-     B: global-ref      34  ; z
+     9: global-set      47  ; y
+     B: global-ref      48  ; z
      D: const           3  ; (a . b)
-     F: global-set      34  ; z
+     F: global-set      48  ; z
     11: return
       ")
 
@@ -301,19 +301,19 @@
      5: shallow-ref     0
      7: shallow-ref     0
      9: return
-     A: global-set      32  ; foo
+     A: global-set      46  ; foo
      C: closure         16
      F: func            0
     11: global-ref      0  ; car
     13: const           0  ; x
     15: return
-    16: global-set      33  ; bar
-    18: global-ref      34  ; f
+    16: global-set      47  ; bar
+    18: global-ref      48  ; f
     1A: closure         22
     1D: func            1
     1F: shallow-ref     0
     21: return
-    22: global-set      34  ; f
+    22: global-set      48  ; f
     24: return
       ")
 
@@ -325,21 +325,21 @@
      3: func            2
      5: shallow-ref     1
      7: shallow-ref     0
-     9: global-ref      32  ; f
+     9: global-ref      46  ; f
      B: return
-     C: global-set      32  ; f
+     C: global-set      46  ; f
      E: closure         16
     11: varfunc         0
     13: shallow-ref     0
     15: return
-    16: global-set      33  ; g
+    16: global-set      47  ; g
     18: closure         24
     1B: varfunc         2
     1D: shallow-ref     1
     1F: shallow-ref     2
     21: shallow-ref     0
     23: return
-    24: global-set      33  ; g
+    24: global-set      47  ; g
     26: return
       ")
 

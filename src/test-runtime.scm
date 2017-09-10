@@ -49,6 +49,12 @@
 
 ;; quasiquote
 
+(test (`x)
+      'x)
+(test (`())
+      '())
+(test (`"abc")
+      "abc")
 (test (`(list ,(+ 1 2) 4))
       '(list 3 4))
 (test ((let ([name 'a])
@@ -66,6 +72,8 @@
              [name2 'y])
          `(a `(b ,,name1 ,',name2 d) e)))
       '(a `(b ,x ,'y d) e))
+(test (`,@x)
+      ',@x)
 
 ;; recursion
 
