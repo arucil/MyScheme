@@ -30,39 +30,54 @@
     (meaning-reference e cenv tail?)]
    [else
     (if (pair? e)
-        (case (car e)
-          [(quote)      (meaning-quote (cadr e) cenv tail?)]
-          [(if)         (meaning-if (cadr e) (caddr e) (cadddr e) cenv tail?)]
-          [(set!)       (meaning-set (cadr e) (caddr e) cenv tail?)]
-          [(define)     (compile-error "define only allowed at toplevel")]
-          [(lambda)     (meaning-lambda (cadr e) (cddr e) cenv tail?)]
-          [(begin)      (meaning-sequence (cdr e) cenv tail?)]
-          [(and)        (meaning-and/or (cdr e) cenv tail? #t)]
-          [(or)         (meaning-and/or (cdr e) cenv tail? #f)]
-          [(cond)       (meaning-cond (cdr e) cenv tail?)]
-          [(let)        (meaning-let (cadr e) (cddr e) cenv tail?)]
-          [(letrec)     (meaning-letrec (cadr e) (cddr e) cenv tail?)]
-          [(quasiquote) (meaning-quasiquote (cadr e) cenv tail?)]
-          [else         (meaning-application e cenv tail?)])
+        (if (and (symbol? (car e))
+                 (let ([addr (get-variable-address (car e) cenv)])
+                   (and (global-address? addr)
+                        (macro? (cdr (get-global
+                                      (global-address-index addr)))))))
+            (let ([mac (cdr (get-global
+                             (global-address-index
+                              (get-variable-address (cdr e)))))])
+              (if (builtin-special-form? mac)
+                  (case (special-form-symbol mac)
+                    [(quote)      (meaning-quote (cadr e) cenv tail?)]
+                    [(if)         (meaning-if (cadr e) (caddr e) (cadddr e) cenv tail?)]
+                    [(set!)       (meaning-set (cadr e) (caddr e) cenv tail?)]
+                    [(define)     (compile-error "define only allowed at top level")]
+                    [(lambda)     (meaning-lambda (cadr e) (cddr e) cenv tail?)]
+                    [(begin)      (meaning-sequence (cdr e) cenv tail?)]
+                    [(and)        (meaning-and/or (cdr e) cenv tail? #t)]
+                    [(or)         (meaning-and/or (cdr e) cenv tail? #f)]
+                    ;; [(cond)       (meaning-cond (cdr e) cenv tail?)]
+                    ;; [(let)        (meaning-let (cadr e) (cddr e) cenv tail?)]
+                    ;; [(letrec)     (meaning-letrec (cadr e) (cddr e) cenv tail?)]
+                    ;; [(quasiquote) (meaning-quasiquote (cadr e) cenv tail?)])
+                  (meaning (expand-macro mac e cenv) cenv tail?)))
+            (if (list? e)
+                (meaning-application e cenv tail?)
+                (compile-error "Invalid application" e))))
         (compile-error "Invalid syntax" e))]))
+
+(define (expand-macro mac e cenv)
+  ((macro-handler mac) e cenv))
 
 (define (meaning-quote c cenv tail?)
   (if (or (boolean? c)
-          (number? c)
-          (pair? c)
-          (null? c)
-          (vector? c)
-          (string? c)
-          (char? c)
-          (symbol? c))
-      (case c
-        [(#f) (instruction-encode 'const/false)]
-        [(#t) (instruction-encode 'const/true)]
-        [(()) (instruction-encode 'const/null)]
-        [(0)  (instruction-encode 'const/0)]
-        [(1)  (instruction-encode 'const/1)]
-        [else (instruction-encode 'const (get-constant-index c))])
-      (compile-error "Invalid quotation" c)))
+            (number? c)
+            (pair? c)
+            (null? c)
+            (vector? c)
+            (string? c)
+            (char? c)
+            (symbol? c))
+        (case c
+          [(#f) (instruction-encode 'const/false)]
+          [(#t) (instruction-encode 'const/true)]
+          [(()) (instruction-encode 'const/null)]
+          [(0)  (instruction-encode 'const/0)]
+          [(1)  (instruction-encode 'const/1)]
+          [else (instruction-encode 'const (get-constant-index c))])
+        (compile-error "Invalid quotation" c))))
 
 (define (meaning-if e1 e2 e3 cenv tail?)
   (let* ([m1 (meaning e1 cenv #f)]
@@ -89,25 +104,35 @@
   (append
     (meaning e cenv #f)
     (let ([addr (get-variable-address name cenv)])
-      (case (car addr)
-        [(local)
-         (if (zero? (cadr addr))
-           (instruction-encode 'shallow-set (cddr addr))
-           (instruction-encode 'deep-set (cadr addr) (cddr addr)))]
-        [(global)
-         (instruction-encode 'global-set (cdr addr))]
-        [else (error 'meaning-set "unreachable")]))))
+      (cond
+        [(local-address? addr)
+         (if (zero? (local-address-depth addr))
+             (instruction-encode 'shallow-set
+                                 (local-address-index addr))
+             (instruction-encode 'deep-set
+                                 (local-address-depth addr)
+                                 (local-address-index addr)))]
+        [(global-address? addr)
+         (instruction-encode 'global-set
+                             (global-address-index addr))]
+        [else
+         (error 'meaning-set "unreachable")]))))
 
 (define (meaning-reference name cenv tail?)
   (let ([addr (get-variable-address name cenv)])
-    (case (car addr)
-      [(local)
-       (if (zero? (cadr addr))
-           (instruction-encode 'shallow-ref (cddr addr))
-           (instruction-encode 'deep-ref (cadr addr) (cddr addr)))]
-      [(global)
-       (instruction-encode 'global-ref (cdr addr))]
-      [else (error 'meaing-reference "unreachable")])))
+    (cond
+      [(local-address? addr)
+       (if (zero? (local-address-depth addr))
+           (instruction-encode 'shallow-ref
+                               (local-address-index addr))
+           (instruction-encode 'deep-ref
+                               (local-address-depth addr)
+                               (local-address-index addr)))]
+      [(global-address? addr)
+       (instruction-encode 'global-ref
+                           (global-address-index addr))]
+      [else
+       (error 'meaing-reference "unreachable")])))
 
 (define (meaning-sequence e+ cenv tail?)
   (let loop ([e+ e+])
@@ -266,17 +291,22 @@
                         (modulo offset 256)
                         (quotient offset 256))))
 
+(define-record-type local-address (fields depth index))
+(define-record-type global-address (fields index))
+
 (define (get-variable-address name cenv)
   (let loop ([cenv cenv] [i 0])
     (if (null? cenv)
-       `(global . ,(get-global-index name))
+        (make-global-address (get-global-index name))
        (let loop2 ([rib (car cenv)] [j 0])
          (cond
            [(null? rib)
             (loop (cdr cenv) (+ i 1))]
            [(eq? (car rib) name)
-            `(local ,i . ,j)]
-           [else (loop2 (cdr rib) (+ j 1))])))))
+            (make-local-address i j)]
+           [else
+            (loop2 (cdr rib) (+ j 1))])))))
+
 
 (define (init-cenv) '())
 

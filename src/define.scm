@@ -142,6 +142,16 @@
 (define (get-global i)
   (list-ref *globals* i))
 
+;;;;;;;;;;;;;;;;            macro                ;;;;;;;;;;;;;;;;;;;;;;
+
+(define-record-type macro (fields handler))
+
+(define (builtin-special-form? m)
+  (symbol? (macro-handler m)))
+
+(define (special-form-symbol m)
+  (macro-handler m))
+
 ;;;;;;;;;;;;;;;;         continuation            ;;;;;;;;;;;;;;;;;;;;;;
 
 (define-record-type continuation (fields stack))
@@ -403,12 +413,17 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;       primitives         ;;;;;;;;;;;;;;;;;;;;;;;;
 
+(define-syntax add-global!
+  (syntax-rules ()
+    [(_ name val)
+     (set-cdr! (list-ref *globals*
+                         (get-global-index 'name))
+               val)]))
+
 (define-syntax add-primitive!
   (syntax-rules (..)
     [(_ name f)
-     (set-cdr! (list-ref *globals*
-                         (get-global-index 'name))
-               (make-primitive f))]
+     (add-global! name (make-primitive f))]
     [(_ name f arity)
      (add-primitive! name
                      (lambda (args)
@@ -515,4 +530,28 @@
                         (runtime-error "Incorrect arity for" 'eval)
                         (set! *pc*
                           (meaning-toplevel args)))))
+  )
+
+(define (add-macros!)
+  (add-global! quote 'quote)
+  (add-global! if 'if)
+  (add-global! set! 'set!)
+  (add-global! define 'define)
+  (add-global! lambda 'lambda)
+  (add-global! begin 'begin)
+  (add-global! and 'and)
+  (add-global! or 'or)
+
+  (add-global! define-syntax
+               (macro
+                   (lambda (e cenv)
+                     (global-assign
+                      (global-address-index
+                       (get-variable-address (cadr e) cenv))
+                      (meaning (caddr e) cenv #f)))))
+
+  (add-global! syntax-rules
+               (macro
+                   (lambda (e cenv)
+                     )))
   )
