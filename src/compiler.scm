@@ -5,6 +5,7 @@
 
 (define (meaning-toplevel e*)
   (define (a-meaning-toplevel e tail?)
+    (pretty-print e)
     (if (and (pair? e) (eq? (car e) 'define))
       (meaning-define e tail?)
       (meaning e (init-cenv) tail?)))
@@ -28,6 +29,8 @@
     (meaning-quote e cenv tail?)]
    [(symbol? e)
     (meaning-reference e cenv tail?)]
+   [(macro-transformer? e)
+    e]
    [else
     (if (pair? e)
         (if (and (symbol? (car e))
@@ -37,11 +40,11 @@
                                       (global-address-index addr)))))))
             (let ([mac (cdr (get-global
                              (global-address-index
-                              (get-variable-address (cdr e)))))])
+                              (get-variable-address (car e) cenv))))])
               (if (builtin-special-form? mac)
                   (case (special-form-symbol mac)
                     [(quote)      (meaning-quote (cadr e) cenv tail?)]
-                    [(if)         (meaning-if (cadr e) (caddr e) (cadddr e) cenv tail?)]
+                    [(if)         (meaning-if (cadr e) (cddr e) cenv tail?)]
                     [(set!)       (meaning-set (cadr e) (caddr e) cenv tail?)]
                     [(define)     (compile-error "define only allowed at top level")]
                     [(lambda)     (meaning-lambda (cadr e) (cddr e) cenv tail?)]
@@ -63,13 +66,13 @@
 
 (define (meaning-quote c cenv tail?)
   (if (or (boolean? c)
-            (number? c)
-            (pair? c)
-            (null? c)
-            (vector? c)
-            (string? c)
-            (char? c)
-            (symbol? c))
+          (number? c)
+          (pair? c)
+          (null? c)
+          (vector? c)
+          (string? c)
+          (char? c)
+          (symbol? c))
         (case c
           [(#f) (instruction-encode 'const/false)]
           [(#t) (instruction-encode 'const/true)]
@@ -77,12 +80,15 @@
           [(0)  (instruction-encode 'const/0)]
           [(1)  (instruction-encode 'const/1)]
           [else (instruction-encode 'const (get-constant-index c))])
-        (compile-error "Invalid quotation" c))))
+        (compile-error "Invalid quotation" c)))
 
-(define (meaning-if e1 e2 e3 cenv tail?)
+(define (meaning-if e1 e* cenv tail?)
   (let* ([m1 (meaning e1 cenv #f)]
-         [m2 (meaning e2 cenv tail?)]
-         [m3 (meaning e3 cenv tail?)]
+         [m2 (meaning (car e*) cenv tail?)]
+         [m3 (meaning (if (pair? (cdr e*))
+                          (cadr e*)
+                          #f)
+                      cenv tail?)]
          [m2/goto (append m2 (gen-goto 'goto (length m3)))])
     (append m1 (gen-goto 'goto-if-false (length m2/goto))
             m2/goto
@@ -141,6 +147,7 @@
       (let ([m1 (meaning (car e+) cenv #f)])
         (append m1 (loop (cdr e+)))))))
 
+#|
 (define (meaning-cond e+ cenv tail?)
   ;; (cond [e1 . body] ...)
   ;; =>
@@ -176,6 +183,7 @@
                ,@body)
              ,@(map not vv*))
            cenv tail?))
+|#
 
 (define (meaning-and/or e* cenv tail? is-and?)
   (if (null? e*)
@@ -231,56 +239,185 @@
             '()
             (instruction-encode 'shrink-env))))
 
-(define (meaning-quasiquote e cenv tail?)
-  (let* ([const? #t]
-         [exp (let f ([e e] [lv 0])
-                (cond
-                 [(or (boolean? e)
-                      (number? e)
-                      (string? e)
-                      (char? e))
-                  e]
-                 [(null? e)
-                  ''()]
-                 [(symbol? e)
-                  `',e]
-                 [(vector? e)
-                  `(list->vector ,(f (vector->list e) lv))]
-                 [(pair? e)
-                  (cond
-                   [(let ([e1 (car e)])
-                      (and (pair? e1)
-                           (pair? (cdr e1))
-                           (null? (cddr e1))
-                           (eq? (car e1) 'unquote-splicing)))
-                    (if (zero? lv)
-                        (begin
-                          (set! const? #f)
-                          `(append ,(cadar e) ,(f (cdr e) lv)))
-                        (list 'cons (list ''unquote-splicing (f (cadar e) (- lv 1)))
-                              (f (cdr e) lv)))]
-                   [(and (pair? (cdr e))
-                         (null? (cddr e)))
-                    (case (car e)
-                      [(quasiquote)
-                       (list 'list ''quasiquote (f (cadr e) (+ lv 1)))]
-                      [(unquote)
-                       (if (zero? lv)
-                           (begin
-                             (set! const? #f)
-                             (cadr e))
-                           (list 'list ''unquote (f (cadr e) (- lv 1))))]
-                      [else
-                       (list 'cons (f (car e) lv)
-                             (f (cdr e) lv))])]
-                   [else
-                    (list 'cons (f (car e) lv)
-                          (f (cdr e) lv))])]
-                 [else
-                  (compile-error "Invalid quasiquotation" e)]))])
-    (if const?
-        (meaning-quote e cenv tail?)
-        (meaning exp cenv tail?))))
+;;;;;;;;;;;;;;;;;     macro
+
+
+(define (make-macro-tranformer-proc e def-env)
+  (let ([literals (cadr e)]
+        [rules (cddr e)])
+
+    ;; mbe
+
+    (define (match-pattern pattern e)
+      (if (symbol? (car pattern))
+          (map (lambda (lv p)
+                 (cons (car p)
+                       (cons lv (cdr p))))
+               (get-levels (cdr pattern) 0 '())
+               (match (cdr pattern) (cdr e) '()))
+          (compile-error "Invalid pattern" pattern)))
+
+    (define (has-ellipsis? p)
+      (and (pair? (cdr p))
+           (eq? '... (cadr p))))
+
+    (define (literal? s)
+      (memq s literals))
+
+    (define (get-levels p lv lv*)
+      (cond
+       [(symbol? p)
+        (if (literal? p)
+            lv*
+            (cons lv lv*))]
+       [(pair? p)
+        (if (has-ellipsis? p)
+            (get-levels (car p) (+ lv 1)
+                        (get-levels (cddr p) lv lv*))
+            (get-levels (car p) lv
+                        (get-levels (cdr p) lv lv*)))]
+       [(vector? p)
+        (get-levels (vector->list p) lv lv*)]
+       [else lv*]))
+
+    (define (extract-names p names)
+      (cond
+       [(symbol? p)
+        (if (literal? p)
+            names
+            (cons p names))]
+       [(pair? p)
+        (extract-names
+         (car p)
+         (extract-names
+          ((if (has-ellipsis? p)
+               cddr
+               cdr)
+           p)
+          names))]
+       [(vector? p)
+        (extract-names (vector->list p) names)]
+       [else names]))
+
+    (define (match pattern e bindings)
+      (cond
+       [(symbol? pattern)
+        (if (literal? pattern)
+            bindings
+            (cons (cons pattern e)
+                  bindings))]
+       [(pair? pattern)
+        (if (has-ellipsis? pattern)
+            (let loop ([e e] [sub-bindings* '()])
+              (let ([sub-bindings (if (pair? e)
+                                      (match (car pattern) (car e) '())
+                                      #f)])
+                (if sub-bindings
+                    (loop (cdr e)
+                          (cons (map cdr sub-bindings)
+                                sub-bindings*))
+                    (let ([bindings1 (match (cddr pattern) e bindings)])
+                      (if bindings1
+                          (append (apply map list
+                                         (extract-names (car pattern) '())
+                                         (reverse sub-bindings*))
+                                  bindings1)
+                          #f)))))
+            (if (pair? e)
+                (let ([bindings1 (match (cdr pattern) (cdr e) bindings)])
+                  (if bindings1
+                      (match (car pattern) (car e) bindings1)
+                      #f))
+                #f))]
+       [(vector? pattern)
+        (if (vector? e)
+            (match (vector->list pattern)
+              (vector->list e)
+              bindings)
+            #f)]
+       [else
+        (if (equal? pattern e)
+            bindings
+            #f)]))
+
+    (define (extract-template-fv tmpl fv*)
+      (cond
+       [(symbol? tmpl)
+        (cons tmpl fv*)]
+       [(pair? tmpl)
+        (extract-template-fv
+         (car tmpl)
+         (extract-template-fv (cdr tmpl) fv*))]
+       [(vector? tmpl)
+        (extract-template-fv
+         (vector->list tmpl)
+         fv*)]
+       [else fv*]))
+
+    (define (instantiate tmpl b)
+      (cond
+       [(symbol? tmpl)
+        (let ([x (assq tmpl b)])
+          (if x
+              (if (zero? (cadr x))
+                  (cddr x)
+                  (compile-error "Too few ..." tmpl))
+              tmpl))]
+       [(pair? tmpl)
+        (if (has-ellipsis? tmpl)
+            (let* ([fv* (extract-template-fv (car tmpl) '())]
+                   [new-b (filter
+                           (lambda (x)
+                             (memq (car x) fv*))
+                           b)])
+              (let-values ([(new-b-lv0
+                             new-b-lv+)
+                            (partition
+                             (lambda (x)
+                               (zero? (cadr x)))
+                             new-b)])
+                (if (null? new-b-lv+)
+                    (compile-error "Too many ..." tmpl)
+                    (append
+                     (map
+                      (lambda (b)
+                        (instantiate (car tmpl) b))
+                      (decompose new-b-lv0 new-b-lv+))
+                     (instantiate (cddr tmpl) b)))))
+            (cons (instantiate (car tmpl) b)
+                  (instantiate (cdr tmpl) b)))]
+       [(vector? tmpl)
+        (list->vector (f (vector->list tmpl) b))]
+       [else tmpl]))
+
+    (define (decompose b-lv0 b-lv+)
+      (if (apply = (map (lambda (x) (length (cddr x))) b-lv+)) ;; equal lengths
+          (let loop ([i (- (length (cddar b-lv+)) 1)]
+                     [b* '()])
+            (if (negative? i)
+                b*
+                (loop (- i 1)
+                      (cons (append b-lv0
+                                    (map
+                                     (lambda (x)
+                                       (cons (car x)
+                                             (cons (- (cadr x) 1)
+                                                   (list-ref (cddr x) i))))
+                                     b-lv+))
+                            b*))))
+          (compile-error "Length unequal" tmpl)))
+
+
+    (lambda (e use-env)
+      (let loop ([rules rules])
+        (if (null? rules)
+            (compile-error "Invalid syntax" e)
+            (let* ([pattern (caar rules)]
+                   [template (cadar rules)]
+                   [bindings (match-pattern pattern e)])
+              (if bindings
+                  (instantiate template bindings)
+                  (loop (cdr rules)))))))))
 
 ;;;;;;;;;;;;;;;;;;  auxiliary functions
 

@@ -23,3 +23,4 @@ $ scheme --script main.scm filename...
 # Bibliography
 
 - *Lisp in Small Pieces*, Christian Queinnec
+- *Macro-by-Example*, Eugene E. Kohlbecker, et al

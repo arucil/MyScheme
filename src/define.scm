@@ -116,7 +116,8 @@
 
 (define (init-globals!)
   (empty-globals!)
-  (add-primitives!))
+  (add-primitives!)
+  (add-macros!))
 
 (define undefined-tag "undefined")
 
@@ -145,6 +146,8 @@
 ;;;;;;;;;;;;;;;;            macro                ;;;;;;;;;;;;;;;;;;;;;;
 
 (define-record-type macro (fields handler))
+
+(define-record-type macro-transformer (fields proc))
 
 (define (builtin-special-form? m)
   (symbol? (macro-handler m)))
@@ -543,15 +546,17 @@
   (add-global! or 'or)
 
   (add-global! define-syntax
-               (macro
-                   (lambda (e cenv)
-                     (global-assign
-                      (global-address-index
-                       (get-variable-address (cadr e) cenv))
-                      (meaning (caddr e) cenv #f)))))
+               (make-macro
+                (lambda (e use-env)
+                  (global-assign
+                   (global-address-index
+                    (get-variable-address (cadr e) use-env))
+                   (macro-transformer-proc (meaning (caddr e) use-env #f)))
+                  #f)))
 
   (add-global! syntax-rules
-               (macro
-                   (lambda (e cenv)
-                     )))
+               (make-macro
+                (lambda (e use-env)
+                  (make-macro-transformer
+                   (make-macro-transformer-proc e use-env))))) ;; defined in compiler.scm
   )

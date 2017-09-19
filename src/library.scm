@@ -1,3 +1,17 @@
+
+(define-syntax let
+  (syntax-rules ()
+    [(_ ([name exp] ...) e1 e2 ...)
+     ((lambda (name ...) e1 e2 ...) exp ...)]))
+
+(define-syntax letrec
+  (syntax-rules ()
+    [(_ ([name exp] ...) e1 e2 ...)
+     (let ([name #f] ...)
+       (set! name exp) ...
+       e1 e2 ...)]))
+
+
 (define map
   (letrec ([map1 (lambda (f ls)
                    (if (null? ls)
