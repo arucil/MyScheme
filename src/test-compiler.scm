@@ -1,8 +1,6 @@
 
 (load "compiler.scm")
 
-(set! *exit* (lambda (args) (apply error 'a args)))
-
 (define-syntax test
   (syntax-rules ()
     [(_ expr val)
