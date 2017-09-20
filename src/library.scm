@@ -2,7 +2,11 @@
 (define-syntax let
   (syntax-rules ()
     [(_ ([name exp] ...) e1 e2 ...)
-     ((lambda (name ...) e1 e2 ...) exp ...)]))
+     ((lambda (name ...) e1 e2 ...) exp ...)]
+	[(_ proc ([name exp] ...) e1 e2 ...)
+     (letrec ([proc (lambda (name ...)
+                      e1 e2 ...)])
+       (proc exp ...))]))
 
 (define-syntax letrec
   (syntax-rules ()
@@ -10,6 +14,83 @@
      (let ([name #f] ...)
        (set! name exp) ...
        e1 e2 ...)]))
+
+(define-syntax and
+  (syntax-rules ()
+    [(_) #t]
+	[(_ e1) e1]
+	[(_ e1 e2 ...)
+	 (if e1
+	     (and e2 ...)
+		 #f)]))
+
+(define-syntax or
+  (syntax-rules ()
+    [(_) #f]
+	[(_ e1) e1]
+	[(_ e1 e2 ...)
+	 (let ([%tmp e1])
+	   (if %tmp
+	       %tmp
+		   (or e2 ...)))]))
+
+(define-syntax cond
+  (syntax-rules (else =>)
+    [(_ [else e1 e2 ...])
+     (begin e1 e2 ...)]
+    [(_ [test])
+     (let ([%tmp test])
+       (if %tmp
+         %tmp))]
+    [(_ [test] c1 c2 ...)
+     (let ([%tmp test])
+       (if %tmp
+         %tmp
+         (cond c1 c2 ...)))]
+    [(_ [test => e])
+     (let ([%tmp test])
+       (if %tmp
+         (e %tmp)))]
+    [(_ [test => e] c1 c2 ...)
+     (let ([%tmp test])
+       (if %tmp
+         (e %tmp)
+         (cond c1 c2 ...)))]
+    [(_ [test e1 e2 ...])
+     (if test
+       (begin e1 e2 ...))]
+    [(_ [test e1 e2 ...] c1 c2 ...)
+     (if test
+       (begin e1 e2 ...)
+       (cond c1 c2 ...))]))
+
+(define-syntax quasiquote
+  (syntax-rules ()
+    [(_ e) (qq-expand e)]))
+
+(define-syntax qq-expand
+  (syntax-rules (quasiquote unquote unquote-splicing)
+    [(_ `x . lv)
+     (list 'quasiquote
+           (qq-expand x #f . lv))]
+    [(_ ,x)
+     x]
+    [(_ ,x #f . lv)
+     (list 'unquote
+           (qq-expand x . lv))]
+    [(_ (,@x . y))
+     (append x
+             (qq-expand y))]
+    [(_ (,@x . y) #f . lv)
+     (cons (list 'unquote-splicing
+                 (qq-expand x . lv))
+           (qq-expand y #f . lv))]
+    [(_ #(x ...) . lv)
+     (list->vector (qq-expand (x ...) . lv))]
+    [(_ (x . y) . lv)
+     (cons (qq-expand x . lv)
+           (qq-expand y . lv))]
+    [(_ x . lv) 'x]))
 
 
 (define map

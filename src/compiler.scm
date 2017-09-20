@@ -5,7 +5,6 @@
 
 (define (meaning-toplevel e*)
   (define (a-meaning-toplevel e tail?)
-    (pretty-print e)
     (if (and (pair? e) (eq? (car e) 'define))
       (meaning-define e tail?)
       (meaning e (init-cenv) tail?)))
@@ -49,16 +48,12 @@
                     [(define)     (compile-error "define only allowed at top level")]
                     [(lambda)     (meaning-lambda (cadr e) (cddr e) cenv tail?)]
                     [(begin)      (meaning-sequence (cdr e) cenv tail?)]
-                    [(and)        (meaning-and/or (cdr e) cenv tail? #t)]
-                    [(or)         (meaning-and/or (cdr e) cenv tail? #f)]
-                    ;; [(cond)       (meaning-cond (cdr e) cenv tail?)]
-                    ;; [(let)        (meaning-let (cadr e) (cddr e) cenv tail?)]
-                    ;; [(letrec)     (meaning-letrec (cadr e) (cddr e) cenv tail?)]
-                    ;; [(quasiquote) (meaning-quasiquote (cadr e) cenv tail?)])
+					[else         (error 'meaning "Unreachable" e)]
+					)
                   (meaning (expand-macro mac e cenv) cenv tail?)))
             (if (list? e)
                 (meaning-application e cenv tail?)
-                (compile-error "Invalid application" e))))
+                (compile-error "Invalid application" e)))
         (compile-error "Invalid syntax" e))]))
 
 (define (expand-macro mac e cenv)
@@ -122,7 +117,7 @@
          (instruction-encode 'global-set
                              (global-address-index addr))]
         [else
-         (error 'meaning-set "unreachable")]))))
+         (error 'meaning-set "Unreachable")]))))
 
 (define (meaning-reference name cenv tail?)
   (let ([addr (get-variable-address name cenv)])
@@ -138,7 +133,7 @@
        (instruction-encode 'global-ref
                            (global-address-index addr))]
       [else
-       (error 'meaing-reference "unreachable")])))
+       (error 'meaing-reference "Unreachable")])))
 
 (define (meaning-sequence e+ cenv tail?)
   (let loop ([e+ e+])
@@ -146,58 +141,6 @@
       (meaning (car e+) cenv tail?)
       (let ([m1 (meaning (car e+) cenv #f)])
         (append m1 (loop (cdr e+)))))))
-
-#|
-(define (meaning-cond e+ cenv tail?)
-  ;; (cond [e1 . body] ...)
-  ;; =>
-  ;; (if e1 (begin . body) . ...)
-  (letrec ([cvt (lambda (e+)
-                  (cond
-                    [(null? e+) #f]
-                    [(and (null? (cdr e+))
-                          (eq? (caar e+) 'else))
-                     `(begin . ,(cdar e+))]
-                    [else
-                      `(if ,(caar e+)
-                         (begin . ,(cdar e+))
-                         ,(cvt (cdr e+)))]))])
-    (meaning (cvt e+) cenv tail?)))
-
-(define (meaning-let vv* body cenv tail?)
-  ;; (let ([name value] ...) . body)
-  ;; =>
-  ;; ((lambda (name ...) . body) value ...)
-  (meaning `((lambda ,(map car vv*) . ,body)
-             . ,(map cadr vv*))
-           cenv tail?))
-
-(define (meaning-letrec vv* body cenv tail?)
-  ;; (letrec ([name value] ...) . body)
-  ;; =>
-  ;; ((lambda (name ...) (set! name value) ... . body) #f ...)
-  (meaning `((lambda ,(map car vv*)
-               ,@(map (lambda (p)
-                        `(set! ,(car p) ,(cadr p)))
-                      vv*)
-               ,@body)
-             ,@(map not vv*))
-           cenv tail?))
-|#
-
-(define (meaning-and/or e* cenv tail? is-and?)
-  (if (null? e*)
-    (meaning is-and? cenv tail?)
-    (let rec ([e+ e*])
-      (if (null? (cdr e+))
-        (meaning (car e+) cenv tail?)
-        (let ([m1* (rec (cdr e+))])
-          (append (meaning (car e+) cenv #f)
-                  (gen-goto (if is-and?
-                              'goto-if-false
-                              'goto-if-true)
-                            (length m1*))
-                  m1*))))))
 
 (define (meaning-lambda args body cenv tail?)
   (let* ([m (append (gen-lambda-body args body cenv #t)
@@ -242,7 +185,7 @@
 ;;;;;;;;;;;;;;;;;     macro
 
 
-(define (make-macro-tranformer-proc e def-env)
+(define (make-macro-transformer-proc e def-env)
   (let ([literals (cadr e)]
         [rules (cddr e)])
 
@@ -250,12 +193,15 @@
 
     (define (match-pattern pattern e)
       (if (symbol? (car pattern))
-          (map (lambda (lv p)
-                 (cons (car p)
-                       (cons lv (cdr p))))
-               (get-levels (cdr pattern) 0 '())
-               (match (cdr pattern) (cdr e) '()))
-          (compile-error "Invalid pattern" pattern)))
+        (let ([bindings (match (cdr pattern) (cdr e) '())])
+          (if bindings
+            (map (lambda (lv p)
+                   (cons (car p)
+                         (cons lv (cdr p))))
+                 (get-levels (cdr pattern) 0 '())
+                 bindings)
+            #f))
+        (compile-error "Invalid pattern" pattern)))
 
     (define (has-ellipsis? p)
       (and (pair? (cdr p))
@@ -303,7 +249,9 @@
       (cond
        [(symbol? pattern)
         (if (literal? pattern)
-            bindings
+            (if (eq? pattern e)
+			    bindings
+				#f)
             (cons (cons pattern e)
                   bindings))]
        [(pair? pattern)
@@ -423,7 +371,7 @@
 
 (define (gen-goto code offset)
   (if (> offset 65535)
-    (compile-error "too long jump" offset)
+    (compile-error "Too long jump" offset)
     (instruction-encode code
                         (modulo offset 256)
                         (quotient offset 256))))

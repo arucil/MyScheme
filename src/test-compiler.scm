@@ -1,6 +1,7 @@
 
 (load "compiler.scm")
 
+(set! *exit* (lambda (args) (apply error 'a args)))
 
 (define-syntax test
   (syntax-rules ()
@@ -74,118 +75,6 @@
       "
       )
 
-;; and
-
-(test ((and) (and 1) (and '() 0) (and 1 2 '()))
-      "
-     0: const/true
-     1: const/1
-     2: const/null
-     3: goto-if-false   7
-     6: const/0
-     7: const/1
-     8: goto-if-false   11
-     B: const           0  ; 2
-     D: goto-if-false   11
-    10: const/null
-    11: return
-      "
-      )
-
-;; or
-
-(test ((or) (or 1) (or '() 0) (or 1 2 '()))
-      "
-     0: const/false
-     1: const/1
-     2: const/null
-     3: goto-if-true    7
-     6: const/0
-     7: const/1
-     8: goto-if-true    11
-     B: const           0  ; 2
-     D: goto-if-true    11
-    10: const/null
-    11: return
-      "
-      )
-
-;; cond
-
-(test ((cond [#t 1]))
-      "
-     0: const/true
-     1: goto-if-false   8
-     4: const/1
-     5: goto            9
-     8: const/false
-     9: return
-      "
-      )
-
-(test ((cond [else 0]))
-      "
-     0: const/0
-     1: return
-      "
-      )
-
-(test ((cond [#t 1] [else 0])
-       (cond [#t 1] ['() 2 3 4] [#f 2 3]))
-      "
-     0: const/true
-     1: goto-if-false   8
-     4: const/1
-     5: goto            9
-     8: const/0
-     9: const/true
-     A: goto-if-false   11
-     D: const/1
-     E: goto            2A
-    11: const/null
-    12: goto-if-false   1E
-    15: const           0  ; 2
-    17: const           1  ; 3
-    19: const           2  ; 4
-    1B: goto            2A
-    1E: const/false
-    1F: goto-if-false   29
-    22: const           0  ; 2
-    24: const           1  ; 3
-    26: goto            2A
-    29: const/false
-    2A: return
-      "
-      )
-
-(test ((cond [#t 1] ['() 2 3] [#f 3 2] [else 3 4])
-       (cond [else #t] [else #f]))
-      "
-     0: const/true
-     1: goto-if-false   8
-     4: const/1
-     5: goto            22
-     8: const/null
-     9: goto-if-false   13
-     C: const           0  ; 2
-     E: const           1  ; 3
-    10: goto            22
-    13: const/false
-    14: goto-if-false   1E
-    17: const           1  ; 3
-    19: const           0  ; 2
-    1B: goto            22
-    1E: const           1  ; 3
-    20: const           2  ; 4
-    22: global-ref      46  ; else
-    24: goto-if-false   2B
-    27: const/true
-    28: goto            2C
-    2B: const/false
-    2C: return
-      "
-      )
-
 ;; lambda
 
 (test ((lambda (x) 'x x))
@@ -213,7 +102,7 @@
      0: closure         2C
      3: func            1
      5: shallow-ref     0
-     7: global-ref      46  ; y
+     7: global-ref      56  ; y
      9: global-ref      0  ; car
      B: closure         2B
      E: func            2
@@ -232,7 +121,7 @@
     28: global-ref      0  ; car
     2A: return
     2B: return
-    2C: global-ref      47  ; x
+    2C: global-ref      57  ; x
     2E: global-ref      1  ; cdr
     30: return
       "
@@ -264,7 +153,7 @@
     17: global-set      0  ; car
     19: return
     1A: const           1  ; 3
-    1C: global-set      46  ; x
+    1C: global-set      56  ; x
     1E: const           2  ; \"CDR\"
     20: global-set      1  ; cdr
     22: return
@@ -281,13 +170,13 @@
       "
      0: const/1
      1: const           0  ; \"12A\"
-     3: global-set      46  ; x
+     3: global-set      56  ; x
      5: const           1  ; 3
      7: const           2  ; 2
-     9: global-set      47  ; y
-     B: global-ref      48  ; z
+     9: global-set      57  ; y
+     B: global-ref      58  ; z
      D: const           3  ; (a . b)
-     F: global-set      48  ; z
+     F: global-set      58  ; z
     11: return
       ")
 
@@ -301,19 +190,19 @@
      5: shallow-ref     0
      7: shallow-ref     0
      9: return
-     A: global-set      46  ; foo
+     A: global-set      56  ; foo
      C: closure         16
      F: func            0
     11: global-ref      0  ; car
     13: const           0  ; x
     15: return
-    16: global-set      47  ; bar
-    18: global-ref      48  ; f
+    16: global-set      57  ; bar
+    18: global-ref      58  ; f
     1A: closure         22
     1D: func            1
     1F: shallow-ref     0
     21: return
-    22: global-set      48  ; f
+    22: global-set      58  ; f
     24: return
       ")
 
@@ -325,21 +214,21 @@
      3: func            2
      5: shallow-ref     1
      7: shallow-ref     0
-     9: global-ref      46  ; f
+     9: global-ref      56  ; f
      B: return
-     C: global-set      46  ; f
+     C: global-set      56  ; f
      E: closure         16
     11: varfunc         0
     13: shallow-ref     0
     15: return
-    16: global-set      47  ; g
+    16: global-set      57  ; g
     18: closure         24
     1B: varfunc         2
     1D: shallow-ref     1
     1F: shallow-ref     2
     21: shallow-ref     0
     23: return
-    24: global-set      47  ; g
+    24: global-set      57  ; g
     26: return
       ")
 
@@ -443,123 +332,4 @@
     1F: shallow-ref     0
     21: tail-call       0
     23: return
-      ")
-
-;; let
-
-(test ((let () 1)
-       (let () 1 2))
-      "
-     0: extend-env      0
-     2: func            0
-     4: const/1
-     5: shrink-env
-     6: extend-env      0
-     8: func            0
-     A: const/1
-     B: const           0  ; 2
-     D: return
-      ")
-
-(test ((let ([x 1])
-         (cons x x)))
-      "
-     0: const/1
-     1: push
-     2: extend-env      1
-     4: func            1
-     6: shallow-ref     0
-     8: push
-     9: shallow-ref     0
-     B: push
-     C: global-ref      2  ; cons
-     E: tail-call       2
-    10: return
-      ")
-
-(test ((let ([x car]
-             [y (cons 'a '(b))])
-         car
-         (cons x
-               (cons y
-                     '()))))
-      "
-     0: global-ref      0  ; car
-     2: push
-     3: const           1  ; a
-     5: push
-     6: const           0  ; (b)
-     8: push
-     9: global-ref      2  ; cons
-     B: call            2
-     D: push
-     E: extend-env      2
-    10: func            2
-    12: global-ref      0  ; car
-    14: shallow-ref     0
-    16: push
-    17: shallow-ref     1
-    19: push
-    1A: const/null
-    1B: push
-    1C: global-ref      2  ; cons
-    1E: call            2
-    20: push
-    21: global-ref      2  ; cons
-    23: tail-call       2
-    25: return
-      ")
-
-;; letrec
-
-(test ((letrec () 1)
-       (letrec () 1 2)
-       (letrec ([v 1] [x 2])
-         (x v)))
-      "
-     0: extend-env      0
-     2: func            0
-     4: const/1
-     5: shrink-env
-     6: extend-env      0
-     8: func            0
-     A: const/1
-     B: const           0  ; 2
-     D: shrink-env
-     E: const/false
-     F: push
-    10: const/false
-    11: push
-    12: extend-env      2
-    14: func            2
-    16: const/1
-    17: shallow-set     0
-    19: const           0  ; 2
-    1B: shallow-set     1
-    1D: shallow-ref     0
-    1F: push
-    20: shallow-ref     1
-    22: tail-call       1
-    24: return
-      ")
-
-(test ((letrec [(f (lambda (ls)
-                     (if ls f ls)))]
-         f))
-      "
-     0: const/false
-     1: push
-     2: extend-env      1
-     4: func            1
-     6: closure         19
-     9: func            1
-     B: shallow-ref     0
-     D: goto-if-false   16
-    10: deep-ref        1 0
-    13: goto            18
-    16: shallow-ref     0
-    18: return
-    19: shallow-set     0
-    1B: shallow-ref     0
-    1D: return
       ")

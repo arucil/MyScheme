@@ -74,6 +74,8 @@
       '(a `(b ,x ,'y d) e))
 (test (`,@x)
       ',@x)
+(test (``,,`,(+ 1 2))
+      '`,3)
 
 ;; recursion
 

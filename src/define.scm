@@ -536,14 +536,14 @@
   )
 
 (define (add-macros!)
-  (add-global! quote 'quote)
-  (add-global! if 'if)
-  (add-global! set! 'set!)
-  (add-global! define 'define)
-  (add-global! lambda 'lambda)
-  (add-global! begin 'begin)
-  (add-global! and 'and)
-  (add-global! or 'or)
+  (add-global! quote (make-macro 'quote))
+  (add-global! if (make-macro 'if))
+  (add-global! set! (make-macro 'set!))
+  (add-global! define (make-macro 'define))
+  (add-global! lambda (make-macro 'lambda))
+  (add-global! begin (make-macro 'begin))
+  (add-global! and (make-macro 'and))
+  (add-global! or (make-macro 'or))
 
   (add-global! define-syntax
                (make-macro
@@ -551,7 +551,8 @@
                   (global-assign
                    (global-address-index
                     (get-variable-address (cadr e) use-env))
-                   (macro-transformer-proc (meaning (caddr e) use-env #f)))
+				   (make-macro
+                    (macro-transformer-proc (meaning (caddr e) use-env #f))))
                   #f)))
 
   (add-global! syntax-rules
