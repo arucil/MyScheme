@@ -117,14 +117,14 @@
 (define (init-globals!)
   (empty-globals!)
   (add-primitives!)
-  (add-macros!))
+  (add-macros!)) ;; defined in compiler.scm
 
 (define undefined-tag "undefined")
 
 (define (global-reference i)
   (let ([v (list-ref *globals* i)])
     (if (eq? undefined-tag (cdr v))
-      (runtime-error "Undefined global variable" (car v))
+      (runtime-error "Undefined variable" (car v))
       (cdr v))))
 
 (define (global-assign i v)
@@ -140,20 +140,10 @@
        i]
       [else (loop (cdr g) (+ i 1))])))
 
-(define (get-global i)
-  (list-ref *globals* i))
-
-;;;;;;;;;;;;;;;;            macro                ;;;;;;;;;;;;;;;;;;;;;;
-
-(define-record-type macro (fields handler))
-
-(define-record-type macro-transformer (fields proc))
-
-(define (builtin-special-form? m)
-  (symbol? (macro-handler m)))
-
-(define (special-form-symbol m)
-  (macro-handler m))
+;; return a pair
+(define (get-global name)
+  (list-ref *globals*
+            (get-global-index)))
 
 ;;;;;;;;;;;;;;;;         continuation            ;;;;;;;;;;;;;;;;;;;;;;
 
@@ -500,7 +490,6 @@
                         (runtime-error "Incorrect arity for" 'exit)
                         (*exit* (car args)))))
 
-  ; (add-primitive! map (lambda (x) x))
   (add-primitive! apply
                   (lambda (args)
                     (if (< (length args) 2)
@@ -533,31 +522,4 @@
                         (runtime-error "Incorrect arity for" 'eval)
                         (set! *pc*
                           (meaning-toplevel args)))))
-  )
-
-(define (add-macros!)
-  (add-global! quote (make-macro 'quote))
-  (add-global! if (make-macro 'if))
-  (add-global! set! (make-macro 'set!))
-  (add-global! define (make-macro 'define))
-  (add-global! lambda (make-macro 'lambda))
-  (add-global! begin (make-macro 'begin))
-  (add-global! and (make-macro 'and))
-  (add-global! or (make-macro 'or))
-
-  (add-global! define-syntax
-               (make-macro
-                (lambda (e use-env)
-                  (global-assign
-                   (global-address-index
-                    (get-variable-address (cadr e) use-env))
-				   (make-macro
-                    (macro-transformer-proc (meaning (caddr e) use-env #f))))
-                  #f)))
-
-  (add-global! syntax-rules
-               (make-macro
-                (lambda (e use-env)
-                  (make-macro-transformer
-                   (make-macro-transformer-proc e use-env))))) ;; defined in compiler.scm
   )

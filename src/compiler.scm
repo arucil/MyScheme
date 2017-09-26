@@ -1,11 +1,110 @@
 
 (load "define.scm")
 
+;;;;;;;;;;;;;;;;;;;;    compile-time env  ;;;;;;;;;;;;;;;;;;;;;
+
+(define-record-type variable-frame (fields next slist))
+
+(define-record-type rename-frame (fields
+                                  next
+                                  name       ;; renamed
+                                  denotation ;; a list-tail in a variable frame,
+                                             ;; or a pair in macro frame / global env,
+                                             ;; whose car is the original name
+                                  ))
+
+(define-record-type macro-frame (fields next alist))
+
+
+(define (empty-cenv) #f)
+
+(define (extend-cenv-var v* cenv)
+  (letrec ([f (lambda (v*)
+                (cond
+                 [(null? v*) '()]
+                 [(symbol? v*)
+                  (cons v* '())]
+                 [else
+                  (cons (car v*)
+                        (f (cdr v*)))]))])
+    (make-variable-frame cenv (f v*))))
+
+(define (extend-cenv-macro v* cenv)
+  (letrec ([f (lambda (v*)
+                (cond
+                 [(null? v*) '()]
+                 [(symbol? v*)
+                  (cons (cons v* #f) '())]
+                 [else
+                  (cons (cons (car v*) #f)
+                        (f (cdr v*)))]))])
+    (make-macro-frame cenv (f v*))))
+
+(define (extend-cenv-rename name den cenv)
+  (make-rename-frame cenv name denv))
+
+
+(define (get-denotation name)
+  (let loop ([cenv cenv])
+    (if (not cenv)
+        (get-global name)
+        (cond
+         [(variable-frame? cenv)
+          (let ([p (memq name variable-frame-slist)])
+            (if p
+                p
+                (loop (variable-frame-next cenv))))]
+         [(macro-frame? cenv)
+          (let ([p (assq name variable-frame-alist)])
+            (if p
+                p
+                (loop (macro-frame-next cenv))))]
+         [(rename-frame? cenv)
+          (if (eq? name (rename-frame-name cenv))
+              (rename-frame-denotation cenv)
+              (loop (rename-frame-next cenv)))]
+         [else (error 'get-denotation "Unreachable")]))))
+
+(define (is-macro? den)
+  (macro? (cdr den)))
+
+(define (special-form? name sym)
+  (let ([den (get-denotation name)])
+    (and (macro? (cdr den))
+         (eq? sym (macro-handler (cdr den))))))
+
+
+(define-record-type local-address (fields depth index))
+(define-record-type global-address (fields index))
+
+(define (get-variable-address den cenv)
+  (let loop ([cenv cenv] [i 0])
+    (if (not cenv)
+        (make-global-address (get-global-index (car den)))
+        (cond
+         [(variable-frame? cenv)
+          (let f ([slist (variable-frame-slist cenv)] [j 0])
+            (cond
+             [(null? slist)
+              (loop (variable-frame-next cenv) (+ i 1))]
+             [(eq? slist den)
+              (make-local-address i j)]
+             [else
+              (f (cdr slist) (+ j 1))]))]
+         [(macro-frame? cenv)
+          (loop (macro-frame-next cenv) i)]
+         [(rename-frame? cenv)
+          (loop (rename-frame-next cenv) i)]
+         [else (error 'get-variable-address "Unreachable")]))))
+
+
+
 ;;;;;;;;;;;;;;;;;;;;        compile        ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (meaning-toplevel e*)
   (define (a-meaning-toplevel e tail?)
-    (if (and (pair? e) (eq? (car e) 'define))
+    (if (and (pair? e)
+             (special-form? (car e) 'define))
       (meaning-define e tail?)
       (meaning e (init-cenv) tail?)))
 
@@ -28,8 +127,6 @@
     (meaning-quote e cenv tail?)]
    [(symbol? e)
     (meaning-reference e cenv tail?)]
-   [(macro-transformer? e)
-    e]
    [else
     (if (pair? e)
         (if (and (symbol? (car e))
@@ -42,14 +139,14 @@
                               (get-variable-address (car e) cenv))))])
               (if (builtin-special-form? mac)
                   (case (special-form-symbol mac)
-                    [(quote)      (meaning-quote (cadr e) cenv tail?)]
-                    [(if)         (meaning-if (cadr e) (cddr e) cenv tail?)]
-                    [(set!)       (meaning-set (cadr e) (caddr e) cenv tail?)]
-                    [(define)     (compile-error "define only allowed at top level")]
-                    [(lambda)     (meaning-lambda (cadr e) (cddr e) cenv tail?)]
-                    [(begin)      (meaning-sequence (cdr e) cenv tail?)]
-					[else         (error 'meaning "Unreachable" e)]
-					)
+                    [(quote)        (meaning-quote (cadr e) cenv tail?)]
+                    [(if)           (meaning-if (cadr e) (cddr e) cenv tail?)]
+                    [(set!)         (meaning-set (cadr e) (caddr e) cenv tail?)]
+                    [(define)       (compile-error "misplaced define")]
+                    [(lambda)       (meaning-lambda (cadr e) (cddr e) cenv tail?)]
+                    [(begin)        (meaning-sequence (cdr e) cenv tail?)]
+                    [(syntax-rules) (compile-error "misplaced syntax-rules")]
+                    [else           (error 'meaning "Unreachable" e)])
                   (meaning (expand-macro mac e cenv) cenv tail?)))
             (if (list? e)
                 (meaning-application e cenv tail?)
@@ -143,7 +240,7 @@
         (append m1 (loop (cdr e+)))))))
 
 (define (meaning-lambda args body cenv tail?)
-  (let* ([m (append (gen-lambda-body args body cenv #t)
+  (let* ([m (append (meaning-lambda-body args body cenv #t)
                     (instruction-encode 'return))]
          [size (length m)])
     (append (instruction-encode 'closure
@@ -151,15 +248,15 @@
                                 (quotient size 256))
             m)))
 
-(define (gen-lambda-body args body cenv tail?)
-  (let ([n (variadic? args)])
-    (append 
+(define (meaning-lambda-body args body cenv tail?)
+  (let ([n (improper-list-length? args)])
+    (append
       (if n
         (instruction-encode 'varfunc n)
         (instruction-encode 'func (length args)))
       (meaning-sequence
         body
-        (extend-cenv args cenv)
+        (extend-cenv-var args cenv)
         tail?))))
 
 (define (meaning-application e+ cenv tail?)
@@ -167,7 +264,7 @@
     (if (null? e*)
       (if (and (pair? (car e+))
                (eq? 'lambda (caar e+)))
-        (gen-closed-application (car e+) (length (cdr e+)) cenv tail?)
+        (meaning-closed-application (car e+) (length (cdr e+)) cenv tail?)
         (append (meaning (car e+) cenv #f)
                 (instruction-encode (if tail? 'tail-call 'call)
                                     (length (cdr e+)))))
@@ -175,9 +272,9 @@
               (instruction-encode 'push)
               (loop (cdr e*))))))
 
-(define (gen-closed-application e argc cenv tail?)
+(define (meaning-closed-application e argc cenv tail?)
   (append (instruction-encode 'extend-env argc)
-          (gen-lambda-body (cadr e) (cddr e) cenv tail?)
+          (meaning-lambda-body (cadr e) (cddr e) cenv tail?)
           (if tail?
             '()
             (instruction-encode 'shrink-env))))
@@ -376,37 +473,38 @@
                         (modulo offset 256)
                         (quotient offset 256))))
 
-(define-record-type local-address (fields depth index))
-(define-record-type global-address (fields index))
-
-(define (get-variable-address name cenv)
-  (let loop ([cenv cenv] [i 0])
-    (if (null? cenv)
-        (make-global-address (get-global-index name))
-       (let loop2 ([rib (car cenv)] [j 0])
-         (cond
-           [(null? rib)
-            (loop (cdr cenv) (+ i 1))]
-           [(eq? (car rib) name)
-            (make-local-address i j)]
-           [else
-            (loop2 (cdr rib) (+ j 1))])))))
-
-
-(define (init-cenv) '())
-
-(define (extend-cenv v* cenv)
-  (letrec ([f (lambda (v*)
-                (cond
-                  [(null? v*) '()]
-                  [(symbol? v*) (cons v* '())]
-                  [else
-                    (cons (car v*) (f (cdr v*)))]))])
-    (cons (f v*) cenv)))
-
-(define (variadic? v*)
+;; if proper list, return #f
+(define (improper-list-length? v*)
   (let loop ([v* v*] [i 0])
     (cond
      [(null? v*) #f]
      [(atom? v*) i]
      [else (loop (cdr v*) (+ i 1))])))
+
+
+;;;;;;;;;;;;;;;;            macro                ;;;;;;;;;;;;;;;;;;;;;;
+
+;; handler: procedure | symbol
+(define-record-type macro (fields handler))
+
+(define (add-macros!)
+  (add-global! quote (make-macro 'quote))
+  (add-global! if (make-macro 'if))
+  (add-global! set! (make-macro 'set!))
+  (add-global! define (make-macro 'define))
+  (add-global! lambda (make-macro 'lambda))
+  (add-global! begin (make-macro 'begin))
+  (add-global! syntax-rules (make-macro 'syntax-rules))
+  (add-global! let-syntax (make-macro 'let-syntax))
+  (add-global! letrec-syntax (make-macro 'letrec-syntax))
+
+  (add-global! define-syntax
+               (make-macro
+                (lambda (e use-env)
+                  (if (special-form?))
+                  (set-cdr!
+                   (get-global (cadr e))
+                   (make-macro
+                    (macro-transformer-proc (meaning (caddr e) use-env #f))))
+                  #f)))
+  )
