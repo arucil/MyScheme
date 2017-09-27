@@ -13,7 +13,10 @@
        (let* ([ret #f]
               [p (with-output-to-string
                    (lambda ()
-                     (set! ret (run (meaning-toplevel 'e)))))])
+                     (set! ret (call/cc
+                                (lambda (k)
+                                  (set! *exit* k)
+                                  (run (meaning-toplevel 'e)))))))])
          (unless (and (equal? ret val)
                       (equal? (string-trim p)
                               (string-trim printed)))
@@ -318,3 +321,35 @@
        )
       '(33 44))
 
+
+;;;;;;;;;;;;;;;         macros
+
+;; hygiene
+
+(test ((define x 3)
+       (define-syntax mm
+         (syntax-rules ()
+           [(_ a)
+            (list a x)]))
+       (let ([x 10])
+         (mm x)))
+      '(10 3))
+
+(test ((define-syntax xx
+         (syntax-rules ()
+           [(_ x)
+            (let ([t 100])
+              (list t x))]))
+       (define t 3)
+       (xx t))
+      '(100 3))
+
+(test ((define x 3)
+       (define-syntax xx
+         (syntax-rules (x)
+           [(_ x) 0]
+           [(_ y) y]))
+       (list (xx x)
+             (let ([x 100])
+               (xx x))))
+      '(0 100))

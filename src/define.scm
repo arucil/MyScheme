@@ -9,10 +9,6 @@
 (define (compile-error . args)
   (*exit* args))
 
-(define (initialize!)
-  (init-constants!)
-  (init-globals!))
-
 
 (define (string-trim s)
   (do ([i 0 (+ i 1)])
@@ -22,6 +18,16 @@
            [(or (< j i)
                 (not (char-whitespace? (string-ref s j))))
             (substring s i (+ j 1))])]))
+
+;; works for both proper & improper lists
+(define (for-each* f ls)
+  (cond
+   [(null? ls) #f]
+   [(pair? ls)
+    (f (car ls))
+    (for-each* f (cdr ls))]
+   [else
+    (f ls)]))
 
 ;;;;;;;;;;;;;;;;;;             constants         ;;;;;;;;;;;;;;;;;;;;;
 
@@ -143,7 +149,7 @@
 ;; return a pair
 (define (get-global name)
   (list-ref *globals*
-            (get-global-index)))
+            (get-global-index name)))
 
 ;;;;;;;;;;;;;;;;         continuation            ;;;;;;;;;;;;;;;;;;;;;;
 
@@ -409,9 +415,7 @@
 (define-syntax add-global!
   (syntax-rules ()
     [(_ name val)
-     (set-cdr! (list-ref *globals*
-                         (get-global-index 'name))
-               val)]))
+     (set-cdr! (get-global 'name) val)]))
 
 (define-syntax add-primitive!
   (syntax-rules (..)

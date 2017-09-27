@@ -6,11 +6,13 @@ A simple Scheme compiler &amp; virtual machine
 - First-class procedure
 - Proper tail call
 - `Eval` function
-- Quasiquote
+- Quasiquotation
 - First-class continuation (`call/cc`)
+- Hygienic macro (`syntax-rules`)
 
 # TODO
-- Hygienic macro
+- Local macros
+- Multiple values
 
 # Run
 
@@ -23,4 +25,5 @@ $ scheme --script main.scm filename...
 # Bibliography
 
 - *Lisp in Small Pieces*, Christian Queinnec
-- *Macro-by-Example*, Eugene E. Kohlbecker, et al
+- *Macro-by-Example*, Eugene Kohlbecker, et al
+- *Macros that work*, William Clinger, et al
