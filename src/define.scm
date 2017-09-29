@@ -438,6 +438,16 @@
                              (return))
                            (runtime-error "Incorrect arity for" 'name))))]))
 
+(define *exit-flag*)
+
+(define (reset-exit-flag!)
+  (set! *exit-flag* #f))
+
+(define (set-exit-flag!)
+  (set! *exit-flag* #t))
+
+(define (exit-flag?) *exit-flag*)
+
 (define (add-primitives!)
   (add-primitive! car car 1)
   (add-primitive! cdr cdr 1)
@@ -492,7 +502,9 @@
                   (lambda (args)
                     (if (not (= 1 (length args)))
                         (runtime-error "Incorrect arity for" 'exit)
-                        (*exit* (car args)))))
+                        (begin
+                          (set-exit-flag!)
+                          (*exit* (car args))))))
 
   (add-primitive! apply
                   (lambda (args)

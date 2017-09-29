@@ -657,4 +657,5 @@
 (define (initialize!)
   (init-constants!)
   (init-globals!)
-  (add-macros!))
+  (add-macros!)
+  (reset-exit-flag!))
