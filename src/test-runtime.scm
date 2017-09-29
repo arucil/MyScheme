@@ -13,10 +13,7 @@
        (let* ([ret #f]
               [p (with-output-to-string
                    (lambda ()
-                     (set! ret (call/cc
-                                (lambda (k)
-                                  (set! *exit* k)
-                                  (run (meaning-toplevel 'e)))))))])
+                     (set! ret (run 'e))))])
          (unless (and (equal? ret val)
                       (equal? (string-trim p)
                               (string-trim printed)))
@@ -324,6 +321,47 @@
 
 ;;;;;;;;;;;;;;;         macros
 
+;; local macros
+
+(test ((let ([tmp -])
+         (list (tmp 3)
+               (let-syntax ([tmp
+                             (syntax-rules ()
+                               [(_ x) '(x)])])
+                 (tmp 3)))))
+      '(-3 (3)))
+
+(test ((let ([f (lambda (x) (+ x 1))])
+         (let-syntax ([f (syntax-rules ()
+                           [(_ x) x])]
+                      [g (syntax-rules ()
+                           [(_ x) (f x)])])
+           (list (f 1) (g 1)))))
+      '(1 2))
+
+(test ((let ([f (lambda (x) (+ x 1))])
+         (letrec-syntax ([f (syntax-rules ()
+                              [(_ x) x])]
+                         [g (syntax-rules ()
+                              [(_ x) (f x)])])
+           (list (f 1) (g 1)))))
+      '(1 1))
+
+(test ((letrec-syntax ([my-or (syntax-rules ()
+                                [(_) #f]
+                                [(_ e) e]
+                                [(_ e1 e2 ...)
+                                 (let ([t e1])
+                                   (if t
+                                       t
+                                       (my-or e2 ...)))])])
+         (list (my-or)
+               (my-or 123)
+               (my-or 123 456)
+               (my-or #f #f 789))))
+      '(#f 123 123 789))
+
+
 ;; hygiene
 
 (test ((define x 3)
@@ -353,3 +391,17 @@
              (let ([x 100])
                (xx x))))
       '(0 100))
+
+(test ((let ([x 3])
+         (define-syntax xx
+           (syntax-rules ()
+             [(_)
+              (let ([x 1])
+                (yy x))]))
+         (define-syntax yy
+           (syntax-rules ()
+             [(_ a)
+              (list a x)]))
+         (xx)))
+      '(1 3))
+

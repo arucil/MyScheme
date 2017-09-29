@@ -6,10 +6,14 @@
 (define (meaning-toplevel e*)
   (define (a-meaning-toplevel e tail?)
     (init-mark!)
-    (if (and (pair? e)
-             (special-form? 'define (car e) (empty-cenv)))
-      (meaning-define e tail?)
-      (meaning e (empty-cenv) tail?)))
+    (if (pair? e)
+        (cond
+         [(special-form? 'define (car e) (empty-cenv))
+          (meaning-toplevel-define e tail?)]
+         [(special-form? 'define-syntax (car e) (empty-cenv))
+          (meaning-toplevel-define-syntax e tail?)]
+         [else (meaning e (empty-cenv) tail?)])
+        (meaning e (empty-cenv) tail?)))
 
   (if (null? e*)
     (instruction-encode 'return)
@@ -18,8 +22,13 @@
         (append
           (a-meaning-toplevel (car e*) #t)
           (instruction-encode 'return))
-        (let ([m1 (a-meaning-toplevel (car e*) #f)])
-          (append m1 (rec (cdr e*))))))))
+        (if (and (pair? (car e*))
+                 (special-form? 'begin (caar e*) (empty-cenv)))
+            ;; flatten toplevel begin form
+            (rec (append (cdar e*) (cdr e*)))
+
+            (let ([m1 (a-meaning-toplevel (car e*) #f)])
+              (append m1 (rec (cdr e*)))))))))
 
 (define (meaning e cenv tail?)
   (cond
@@ -40,14 +49,17 @@
                              (get-denotation (car e) cenv)))])
               (if (symbol? handler)
                   (case handler
-                    [(quote)        (meaning-quote (cadr e) cenv tail?)]
-                    [(if)           (meaning-if (cadr e) (cddr e) cenv tail?)]
-                    [(set!)         (meaning-set (cadr e) (caddr e) cenv tail?)]
-                    [(define)       (compile-error "misplaced define")]
-                    [(lambda)       (meaning-lambda (cadr e) (cddr e) cenv tail?)]
-                    [(begin)        (meaning-sequence (cdr e) cenv tail?)]
-                    [(syntax-rules) (compile-error "misplaced syntax-rules")]
-                    [else           (error 'meaning "Unreachable" e)])
+                    [(quote)         (meaning-quote (cadr e) cenv tail?)]
+                    [(if)            (meaning-if (cadr e) (cddr e) cenv tail?)]
+                    [(set!)          (meaning-set (cadr e) (caddr e) cenv tail?)]
+                    [(define)        (compile-error "Misplaced define")]
+                    [(define-syntax) (compile-error "Misplaced define-syntax")]
+                    [(lambda)        (meaning-lambda (cadr e) (cddr e) cenv tail?)]
+                    [(begin)         (meaning-sequence (cdr e) cenv tail?)]
+                    [(syntax-rules)  (compile-error "Misplaced syntax-rules")]
+                    [(let-syntax)    (meaning-let-syntax (cadr e) (cddr e) cenv tail?)]
+                    [(letrec-syntax) (meaning-letrec-syntax (cadr e) (cddr e) cenv tail?)]
+                    [else            (error 'meaning "Unreachable" e)])
                   (meaning-macroexpand handler e cenv tail?)))
             (if (list? e)
                 (meaning-application e cenv tail?)
@@ -104,18 +116,25 @@
             m2/goto
             m3)))
 
-;; toplevel define
-(define (meaning-define e tail?)
+(define (convert-define e)
   (if (pair? (cadr e))
-    ;; (define (f . args) . body)  =>  (set! f (lambda args) . body)
-    (meaning `(set! ,(caadr e)
-                (lambda ,(cdadr e)
-                  . ,(cddr e)))
-             (empty-cenv) tail?)
-    ;; (define x e)  =>  (set! x e)
-    (meaning `(set! ,(cadr e)
-                ,(caddr e))
-             (empty-cenv) tail?)))
+      ;; (define (f . args) . body)  =>  (set! f (lambda args . body))
+      `(set! ,(caadr e)
+         ;;TODO: lambda may be shadowed, wait for a solution
+         (lambda ,(cdadr e) . ,(cddr e)))
+
+      ;; (define x e)  =>  (set! x e)
+      `(set! ,(cadr e) ,(caddr e))))
+
+(define (meaning-toplevel-define e tail?)
+  (meaning (convert-define e) (empty-cenv) tail?))
+
+(define (meaning-toplevel-define-syntax e tail?)
+  (set-cdr!
+   (get-global (cadr e))
+   (make-macro
+    (get-macro-transformer (caddr e) (empty-cenv))))
+  (meaning #f (empty-cenv) tail?))
 
 (define (meaning-set name e cenv tail?)
   (let ([den (get-denotation name cenv)])
@@ -193,7 +212,34 @@
       (if n
         (instruction-encode 'varfunc n)
         (instruction-encode 'func (length args)))
-      (meaning-sequence body cenv tail?))))
+
+      ;; convert (define ... body) to letrec, (define-syntax ... body) to letrec-syntax
+      (if (and (pair? (car body))
+               (or (special-form? 'define (caar body) cenv)
+                   (special-form? 'define-syntax (caar body) cenv)))
+          (let ([form (caar body)])
+            (let loop ([body (cdr body)]
+                       [defs (list (car body))])
+              (cond
+               [(null? body) (compile-error "Invalid body")]
+               [(and (pair? (car body))
+                     (special-form? form (caar body) cenv))
+                (loop (cdr body)
+                      (cons (car body) defs))]
+               [else
+                ;;TODO: letrec / letrec-syntax may be shadowed
+                (if (eq? 'define form)
+                    (meaning `(letrec
+                                  ,(map (lambda (e)
+                                          (cdr (convert-define e)))
+                                        defs)
+                                . ,body)
+                             cenv tail?)
+                    (meaning `(letrec-syntax
+                                  ,(map cdr defs)
+                                . ,body)
+                             cenv tail?))])))
+          (meaning-sequence body cenv tail?)))))
 
 (define (meaning-application e+ cenv tail?)
   (let loop ([e* (cdr e+)])
@@ -214,6 +260,31 @@
           (if tail?
             '()
             (instruction-encode 'shrink-env))))
+
+(define (meaning-let-syntax vars body cenv tail?)
+  (meaning-sequence
+   body
+   (extend-cenv-macro (map car vars)
+                      (map (lambda (e)
+                             (make-macro
+                              (get-macro-transformer (cadr e) cenv)))
+                           vars)
+                      cenv)
+   tail?))
+
+(define (meaning-letrec-syntax vars body cenv tail?)
+  (let ([cenv (extend-cenv-macro (map car vars)
+                                 (map car vars)
+                                 cenv)])
+    (for-each
+     (lambda (x p)
+       (set-cdr! x p))
+     (macro-frame-alist cenv)
+     (map (lambda (e)
+            (make-macro
+             (get-macro-transformer (cadr e) cenv)))
+          vars))
+    (meaning-sequence body cenv tail?)))
 
 ;;;;;;;;;;;;;;;;;     macro
 
@@ -405,8 +476,6 @@
 
     ;; returns (expanded-e . new-use-cenv)
     (lambda (e use-cenv)
-      (if (null? (cadar rules))
-          (pretty-print "kao"))
       (let loop ([rules rules])
         (if (null? rules)
             (compile-error "Invalid syntax" e)
@@ -416,8 +485,6 @@
               (if bindings
                   ;; rename free variables in the template
                   (let ([mark (new-mark)])
-                    (if (null? template)
-                        (pretty-print "yes"))
                     (for-each
                      (lambda (x)
                        (set! use-cenv
@@ -460,15 +527,7 @@
   (add-global! syntax-rules  (make-macro 'syntax-rules))
   (add-global! let-syntax    (make-macro 'let-syntax))
   (add-global! letrec-syntax (make-macro 'letrec-syntax))
-
-  (add-global! define-syntax
-               (make-macro
-                (lambda (e use-cenv)
-                  (set-cdr!
-                   (get-global (cadr e))
-                   (make-macro
-                    (get-macro-transformer (caddr e) use-cenv)))
-                  (cons #f use-cenv))))
+  (add-global! define-syntax (make-macro 'define-syntax))
   )
 
 ;;;;;;;;;;;;;;;;;;  auxiliary functions
@@ -516,16 +575,15 @@
                         (f (cdr v*)))]))])
     (make-variable-frame cenv (f v*))))
 
-(define (extend-cenv-macro v* cenv)
-  (letrec ([f (lambda (v*)
+;; assuming vars is a proper list
+(define (extend-cenv-macro vars vals cenv)
+  (letrec ([f (lambda (vars vals)
                 (cond
-                 [(null? v*) '()]
-                 [(symbol? v*)
-                  (cons (cons v* #f) '())]
+                 [(null? vars) '()]
                  [else
-                  (cons (cons (car v*) #f)
-                        (f (cdr v*)))]))])
-    (make-macro-frame cenv (f v*))))
+                  (cons (cons (car vars) (car vals))
+                        (f (cdr vars) (cdr vals)))]))])
+    (make-macro-frame cenv (f vars vals))))
 
 (define (extend-cenv-rename name den cenv)
   (make-rename-frame cenv name den))
@@ -542,7 +600,7 @@
                 p
                 (loop (variable-frame-next cenv))))]
          [(macro-frame? cenv)
-          (let ([p (assq name variable-frame-alist)])
+          (let ([p (assq name (macro-frame-alist cenv))])
             (if p
                 p
                 (loop (macro-frame-next cenv))))]
@@ -562,9 +620,10 @@
   (macro? (denotation->value den)))
 
 (define (special-form? sym name cenv)
-  (let ([den (get-denotation name cenv)])
-    (and (macro-denotation? den)
-         (eq? sym (macro-handler (denotation->value den))))))
+  (and (symbol? name)
+       (let ([den (get-denotation name cenv)])
+         (and (macro-denotation? den)
+              (eq? sym (macro-handler (denotation->value den)))))))
 
 
 (define-record-type local-address (fields depth index))

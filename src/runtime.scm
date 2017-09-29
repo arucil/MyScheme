@@ -14,24 +14,23 @@
 
 (define (init-library!)
   (init-runtime!)
-  (run
-   (meaning-toplevel
-    (load-file "library.scm"))))
+  (run (load-file "prelude.scm")))
 
 (define (init-runtime!)
   (init-stack!)
   (set! *env* #f))
 
-(define (run pc)
-  (if *dasm*
-      (disassemble pc 0 (current-output-port)))
-  (set! *pc* pc)
+(define (run e*)
   (call/cc
    (lambda (k)
      (set! *exit* k)
-     (let loop ()
-       (run-instruction)
-       (loop)))))
+     (let ([pc (meaning-toplevel e*)])
+       (if *dasm*
+           (disassemble pc 0 (current-output-port)))
+       (set! *pc* pc)
+       (let loop ()
+         (run-instruction)
+         (loop))))))
 
 
 (define (repl)
@@ -42,6 +41,6 @@
     (display "myscheme> ")
 	(let ([e (read)])
 	  (unless (eof-object? e)
-	    (write (run (meaning-toplevel (cons e '()))))
+	    (write (run (cons e '())))
         (newline)
         (loop)))))

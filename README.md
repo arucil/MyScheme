@@ -3,16 +3,14 @@ A simple Scheme compiler &amp; virtual machine
 
 # Features
 
-- First-class procedure
-- Proper tail call
-- `Eval` function
-- Quasiquotation
-- First-class continuation (`call/cc`)
-- Hygienic macro (`syntax-rules`)
-
-# TODO
-- Local macros
-- Multiple values
+- [x] First-class procedure
+- [x] Proper tail call
+- [x] `Eval` function
+- [x] Quasiquotation
+- [x] First-class continuation (`call/cc`)
+- [x] Hygienic macro (`syntax-rules`)
+- [x] Local macro (local `define-syntax`, `let-syntax` and `letrec-syntax`)
+- [ ] Multiple values
 
 # Run
 
