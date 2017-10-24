@@ -199,6 +199,7 @@
         [cenv (extend-cenv-var args cenv)]
         [mark (new-mark)])
     ;; rename bound variables
+#|
     (for-each*
      (lambda (x)
        (set! cenv
@@ -207,6 +208,7 @@
           (get-denotation x cenv)
           cenv)))
      args)
+|#
 
     (append
       (if n
