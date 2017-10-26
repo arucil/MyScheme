@@ -122,8 +122,7 @@
 
 (define (init-globals!)
   (empty-globals!)
-  (add-primitives!)
-  (add-macros!)) ;; defined in compiler.scm
+  (add-primitives!))
 
 (define undefined-tag "undefined")
 
@@ -402,7 +401,7 @@
             (write (get-constant (cadr code)) port)]
            [(global-ref global-set)
             (display "  ; " port)
-            (display (car (get-global (cadr code))) port)]
+            (display (car (list-ref *globals* (cadr code))) port)]
            )
          (newline port)
          (disassemble (cddr code) addr port)]
