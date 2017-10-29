@@ -3,13 +3,15 @@
   (syntax-rules ()
     [(_ ([name exp] ...) e1 e2 ...)
      ((lambda (name ...) e1 e2 ...) exp ...)]
-	[(_ proc ([name exp] ...) e1 e2 ...)
+    [(_ proc ([name exp] ...) e1 e2 ...)
      (letrec ([proc (lambda (name ...)
                       e1 e2 ...)])
        (proc exp ...))]))
 
 (define-syntax letrec
   (syntax-rules ()
+    [(_ () e1 e2 ...)
+     (begin e1 e2 ...)]
     [(_ ([name exp] ...) e1 e2 ...)
      (let ([name #f] ...)
        (set! name exp) ...
@@ -18,51 +20,51 @@
 (define-syntax and
   (syntax-rules ()
     [(_) #t]
-	[(_ e1) e1]
-	[(_ e1 e2 ...)
-	 (if e1
-	     (and e2 ...)
-		 #f)]))
+    [(_ e1) e1]
+    [(_ e1 e2 ...)
+     (if e1
+         (and e2 ...)
+         #f)]))
 
 (define-syntax or
   (syntax-rules ()
     [(_) #f]
-	[(_ e1) e1]
-	[(_ e1 e2 ...)
-	 (let ([%tmp e1])
-	   (if %tmp
-	       %tmp
-		   (or e2 ...)))]))
+    [(_ e1) e1]
+    [(_ e1 e2 ...)
+     (let ([t e1])
+       (if t
+           t
+           (or e2 ...)))]))
 
 (define-syntax cond
   (syntax-rules (else =>)
     [(_ [else e1 e2 ...])
      (begin e1 e2 ...)]
     [(_ [test])
-     (let ([%tmp test])
-       (if %tmp
-         %tmp))]
+     (let ([t test])
+       (if t
+           t))]
     [(_ [test] c1 c2 ...)
-     (let ([%tmp test])
-       (if %tmp
-         %tmp
-         (cond c1 c2 ...)))]
+     (let ([t test])
+       (if t
+           t
+           (cond c1 c2 ...)))]
     [(_ [test => e])
-     (let ([%tmp test])
-       (if %tmp
-         (e %tmp)))]
+     (let ([t test])
+       (if t
+           (e t)))]
     [(_ [test => e] c1 c2 ...)
-     (let ([%tmp test])
-       (if %tmp
-         (e %tmp)
-         (cond c1 c2 ...)))]
+     (let ([t test])
+       (if t
+           (e t)
+           (cond c1 c2 ...)))]
     [(_ [test e1 e2 ...])
      (if test
        (begin e1 e2 ...))]
     [(_ [test e1 e2 ...] c1 c2 ...)
      (if test
-       (begin e1 e2 ...)
-       (cond c1 c2 ...))]))
+         (begin e1 e2 ...)
+         (cond c1 c2 ...))]))
 
 (define-syntax quasiquote
   (syntax-rules ()
@@ -125,8 +127,10 @@
                  [(null? ls*) ls1]
                  [(null? ls1) (f (car ls*)
                                  (cdr ls*))]
-                 [else (cons (car ls1) (f (cdr ls1) ls*))]))])
+                 [else        (cons (car ls1)
+                                    (f (cdr ls1) ls*))]))])
     (lambda lss
       (if (null? lss)
           '()
-          (f (car lss) (cdr lss))))))
+          (f (car lss)
+             (cdr lss))))))

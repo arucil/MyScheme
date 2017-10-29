@@ -1,37 +1,96 @@
 
+;;;;;;;;;;;;;;;;;;;;           denotation environment  ;;;;;;;;;;;;;;;;;;;
+
+;; denotation: (name . value)
+
+;; local variable denotation: (original-name . marked-name)
+;; global variable:           (name . name)
+;; macro denotation:          (name . marco-transformer)
+
+(define *global-denv* #f)
+
+(define (init-macroexpander!)
+  (set! *global-denv* '()))
+
+(define (global-denv-add! name den)
+  (set! *global-denv*
+    (cons den
+          *global-denv*))
+  den)
+
+(define (init-denv) '())
+
+(define (apply-denv env var)
+  (cond
+   [(assq var env) => cdr]
+   [(assq var *global-denv*)]
+   [else
+    (global-denv-add!
+     var
+     (cons var var))]))
+
+(define (extend-denv var val env)
+  (cond
+   [(null? var)
+    env]
+   [(pair? var)
+    (extend-denv (cdr var)
+                 (cdr val)
+                 (cons (cons (car var)
+                             (car val))
+                       env))]
+   [else
+    (cons (cons var val)
+          env)]))
+
+(define (identifier? den)
+  (symbol? (cdr den)))
+
+(define (macro? den)
+  (procedure? (cdr den)))
+
+(define (invoke-macro den e env)
+  ((denotation-value den) e env))
+
+(define (make-denotation name value)
+  (cons name value))
+
+(define (denotation-name den)
+  (car den))
+
+(define (denotation-value den)
+  (cdr den))
+
+(define (denotation-value-set! den v)
+  (set-cdr! den v))
+
 ;;;;;;;;;;;;;;;;;;;;;           expander      ;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (expand e env toplevel?)
   (cond
    [(symbol? e)
     (let ([den (apply-denv env e)])
-      (if (symbol? den)
-          den
-          (compile-error "Misplaced syntax" e)))]
+      (if (identifier? den)
+          (denotation-value den)
+          (compile-error "Misplaced syntax" e env)))]
    [(pair? e)
     (let ([den (apply-denv env (car e))])
-      (case den
-        [(if)
-         (expand-if e env toplevel?)]
-        [(set!)
-         (expand-set! e env toplevel?)]
-        [(begin)
-         (expand-begin e env toplevel?)]
-        [(lambda)
-         (expand-lambda e env toplevel?)]
-        [(quote)
-         (expand-quote e env toplevel?)]
-        [(define)
-         (expand-define e env toplevel?)]
-        [(define-syntax)
-         (expand-define-syntax e env toplevel?)]
-        [(syntax-rules)
-         (compile-error "Misplaced syntax-rules" e)]
+      (case (denotation-value den)
+        [(if)            (expand-if e env toplevel?)]
+        [(set!)          (expand-set! e env toplevel?)]
+        [(begin)         (expand-begin e env toplevel?)]
+        [(lambda)        (expand-lambda e env toplevel?)]
+        [(quote)         (expand-quote e env toplevel?)]
+        [(define)        (expand (expand-define e env toplevel?)
+                                 env toplevel?)]
+        [(define-syntax) (expand-define-syntax e env toplevel?)]
+        [(let-syntax)    (expand-let-syntax e env toplevel?)]
+        [(letrec-syntax) (expand-letrec-syntax e env toplevel?)]
+        [(syntax-rules)  (compile-error "Misplaced syntax-rules" e)]
         [else
          (if (macro? den)
              (let-values ([(e env)
-                           (den e env)])
-               (pretty-print e)
+                           (invoke-macro den e env)])
                (expand e env toplevel?))
              (if (list? e)
                  (map (lambda (e)
@@ -52,29 +111,34 @@
 
 (define (expand-if e env toplevel?)
   (if (and (list? e)
-           (= (length e) 4))
-      `(if ,(expand (cadr e) env toplevel?)
-           ,(expand (caddr e) env toplevel?)
-           ,(expand (cadddr e) env toplevel?))
+           (or (= (length e) 3)
+               (= (length e) 4)))
+      `(if . ,(map (lambda (e)
+                     (expand e env toplevel?))
+                   (cdr e)))
       (compile-error "Invalid if" e)))
 
 (define (expand-set! e env toplevel?)
   (if (and (list? e)
            (= (length e) 3))
-      (if (symbol? (apply-denv env (cadr e)))
-          `(set! ,(apply-denv env (cadr e))
+      (if (identifier? (apply-denv env (cadr e)))
+          `(set! ,(denotation-value
+                   (apply-denv env (cadr e)))
              ,(expand (caddr e) env toplevel?))
           (compile-error "Invalid variable in set!" e))
       (compile-error "Invalid set!" e)))
 
+(define (verify-begin e)
+  (unless (and (list? e)
+               (> (length e) 1))
+    (compile-error "Invalid begin" e)))
+
 (define (expand-begin e env toplevel?)
-  (if (and (list? e)
-           (> (length e) 1))
-      `(begin
-         . ,(map (lambda (e)
-                   (expand e env toplevel?))
-                 (cdr e)))
-      (compile-error "Invalid begin" e)))
+  (verify-begin e)
+  `(begin
+     . ,(map (lambda (e)
+               (expand e env toplevel?))
+             (cdr e))))
 
 (define (expand-define e env toplevel?)
   (if toplevel?
@@ -83,20 +147,16 @@
        [(and (list? e)
              (= (length e) 3)
              (symbol? (cadr e)))
-        (expand `(set! ,(cadr e)
-                   ,(caddr e))
-                env
-                toplevel?)]
+        `(set! ,(cadr e)
+           ,(caddr e))]
        ;; (define (x ...) e ...)
        [(and (list? e)
              (> (length e) 2)
              (pair? (cadr e))
              (for-all* symbol? (cadr e)))
-        (expand `(set! ,(caadr e)
-                   (lambda ,(cdadr e)
-                     . ,(cddr e)))
-                env
-                toplevel?)]
+        `(set! ,(caadr e)
+           (lambda ,(cdadr e)
+             . ,(cddr e)))]
        [else
         (compile-error "Invalid define" e)])
       (compile-error "Misplaced define" e)))
@@ -106,21 +166,55 @@
            (> (length e) 2)
            (for-all* symbol? (cadr e)))
       (let* ([mark (new-mark)]
+             [vars (cadr e)]
              [new-vars (map1* (lambda (x)
-                               (mark-identifier
-                                ;; macro expansion may introduce marked formal arguments,
-                                ;; unmark them first
-                                (unmark x env)
-                                mark))
-                             (cadr e))]
-             [env (extend-denv (cadr e)
-                              new-vars
-                              env)])
+                                (mark-identifier
+                                 ;; macro expansion may introduce marked formal arguments,
+                                 ;; unmark them first
+                                 (unmark x env)
+                                 mark))
+                              vars)]
+             [env (extend-denv vars
+                               (map* cons vars new-vars)
+                               env)])
         ;;;TODO: convert define & define-syntax
-        `(lambda ,new-vars
-           . ,(map (lambda (e)
-                     (expand e env #f))
-                   (cddr e))))
+        (let loop ([body     (cddr e)]
+                   [defs     '()]
+                   [stxs     '()])
+          (if (null? body)
+              (compile-error "Invalid lambda body" e)
+              (let ([e1 (car body)])
+                (cond
+                 [(and (pair? e1)
+                       (memq (denotation-value (apply-denv env (car e1)))
+                             '(begin define define-syntax)))
+                  =>
+                  (lambda (p)
+                    (case (car p)
+                      [(begin)
+                       (verify-begin e1)
+                       (loop (append (cdr e1) (cdr body))
+                             defs
+                             stxs)]
+                      [(define)
+                       (loop (cdr body)
+                             (cons (cdr
+                                    ;; convert define to set! form
+                                    (expand-define e1 env #t))
+                                   defs)
+                             stxs)]
+                      [(define-syntax)
+                       (verify-define-syntax e1)
+                       (loop (cdr body)
+                             defs
+                             (cons (cdr e1) stxs))]))]
+                 [else
+                  `(lambda ,new-vars
+                     ,(expand
+                       `(letrec ,defs
+                          (letrec-syntax ,stxs
+                            . ,body))
+                       env #f))])))))
       (compile-error "Invalid lambda" e)))
 
 (define (expand-quote e env toplevel?)
@@ -138,23 +232,77 @@
       `',(unmark (cadr e) env)
       (compile-error "Invalid quote" e)))
 
-(define (expand-define-syntax e env toplevel?)
-  (if toplevel?
-      (if (and (list? e)
+(define (verify-define-syntax e)
+  (unless (and (list? e)
                (= (length e) 3)
                (symbol? (cadr e)))
-          (begin
-            (add-macro! (cadr e)
-                        (make-macro-transformer (caddr e) env))
-            #f)
-          (compile-error "Invalid define-syntax" e))
+    (compile-error "Invalid define-syntax" e)))
+
+(define (expand-define-syntax e env toplevel?)
+  (if toplevel?
+      (begin
+        (verify-define-syntax e)
+        (global-denv-add!
+         (cadr e)
+         (make-denotation
+          (cadr e)
+          (make-macro-transformer (caddr e) env)))
+        #f)
       (compile-error "Misplaced define-syntax" e)))
+
+(define (expand-let-syntax e env toplevel?)
+  (if (and (list? e)
+           (> (length e) 2)
+           (list? (cadr e))
+           (for-all (lambda (e)
+                      (and (list? e)
+                           (= (length e) 2)
+                           (symbol? (car e))))
+                    (cadr e)))
+      (expand `(begin
+                 . ,(cddr e))
+              (extend-denv (map car (cadr e))
+                           (map (lambda (e)
+                                  (make-denotation
+                                   (car e)
+                                   (make-macro-transformer (cadr e) env)))
+                                (cadr e))
+                           env)
+              toplevel?)
+      (compile-error "Invalid let-syntax" e)))
+
+(define (expand-letrec-syntax e env toplevel?)
+  (if (and (list? e)
+           (> (length e) 2)
+           (list? (cadr e))
+           (for-all (lambda (e)
+                      (and (list? e)
+                           (= (length e) 2)
+                           (symbol? (car e))))
+                    (cadr e)))
+      (let* ([vars (map car (cadr e))]
+             [env (extend-denv vars
+                               (map (lambda (e)
+                                      (make-denotation e #f))
+                                    vars)
+                               env)])
+        (for-each (lambda (e)
+                    (denotation-value-set!
+                     (apply-denv env (car e))
+                     (make-macro-transformer (cadr e) env)))
+                  (cadr e))
+        (expand `(begin
+                   . ,(cddr e))
+                env
+                toplevel?))
+      (compile-error "Invalid letrec-syntax" e)))
 
 (define (make-macro-transformer e def-env)
   (if (and (list? e)
            (> (length e) 1)
            (eq? 'syntax-rules
-                (apply-denv def-env (car e)))
+                (denotation-value
+                 (apply-denv def-env (car e))))
            (list? (cadr e))
            (for-all symbol? (cadr e))
            (for-all (lambda (rule)
@@ -236,7 +384,7 @@
                     #f))
               #f))]
      [else
-      (if (equal? p e)
+      (if (eqv? p e)
           b
           #f)])))
 
@@ -295,13 +443,10 @@
                      [(assq tmpl b/lv+)
                       (compile-error "Too few ellipses with" tmpl)]
                      [else
-                      (let ([new-var (mark-identifier tmpl mark)]
-                            [old-den (apply-denv def-env tmpl)])
+                      (let ([new-var (mark-identifier tmpl mark)])
                         (set! use-env
                           (extend-denv new-var
-                                       (if (macro? old-den)
-                                           tmpl
-                                           old-den)
+                                       (apply-denv def-env tmpl)
                                        use-env))
                         new-var)])]
                    [(vector? tmpl)
@@ -354,19 +499,6 @@
                (zero? (cadr p)))
              b))
 
-;;;;;;;;;;;;;;;;;;;;;      global macros         ;;;;;;;;;;;;;;;;;;;;;
-
-(define *macros* #f)
-
-
-(define (init-macros!)
-  (set! *macros* '()))
-
-(define (add-macro! name x)
-  (set! *macros*
-    (cons (cons name x)
-          *macros*)))
-
 ;;;;;;;;;;;;;;;;;;;;;;          marking        ;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define new-mark #f)
@@ -385,56 +517,18 @@
     "$"
     (number->string mark))))
 
-(define (marked-identifier? name)
-  (let* ([ls (reverse
-              (string->list
-               (symbol->string name)))]
-         [i (indv #\$ ls)])
-    (and i
-         (string->number
-          (list->string
-           (take ls i))))))
-
 (define (unmark e env)
   (let rec ([e e])
     (cond
      [(symbol? e)
-      (if (marked-identifier? e)
-          (apply-denv env e)
-          e)]
+      (denotation-name
+       (apply-denv env e))]
      [(pair? e)
       (cons (rec (car e))
             (rec (cdr e)))]
      [(vector? e)
       (vector-map rec e)]
      [else e])))
-
-;;;;;;;;;;;;;;;;;;;;           denotation environment  ;;;;;;;;;;;;;;;;;;;
-
-(define (init-denv) '())
-
-(define (apply-denv env var)
-  (cond
-   [(assq var env) => cdr]
-   [(assq var *macros*) => cdr]
-   [else var]))
-
-(define (extend-denv var val env)
-  (cond
-   [(null? var)
-    env]
-   [(pair? var)
-    (extend-denv (cdr var)
-                (cdr val)
-                (cons (cons (car var)
-                            (car val))
-                      env))]
-   [else
-    (cons (cons var val)
-          env)]))
-
-(define macro? procedure?)
-
 
 ;;;;;;;;;;;;;;;;;;;;;;;;        helper functions        ;;;;;;;;;;;;;;;;;;;;
 
@@ -446,25 +540,27 @@
                     (for-all* p (cdr ls)))]
    [else (p ls)]))
 
+(define (dotted->list ls)
+  (cond
+   [(null? ls) '()]
+   [(pair? ls) (cons (car ls)
+                     (dotted->list (cdr ls)))]
+   [else       (cons ls '())]))
+
 ;; works for both lists and improper lists
 (define (map1* f ls)
   (cond
    [(null? ls) '()]
    [(pair? ls) (cons (f (car ls))
                      (map1* f (cdr ls)))]
-   [else (f ls)]))
+   [else       (f ls)]))
 
-;; take first n items from list ls
-(define (take ls n)
+(define (map* f . lss)
   (cond
-   [(or (null? ls)
-        (zero? n)) '()]
-   [else (cons (car ls)
-               (take (cdr ls) (- n 1)))]))
-
-(define (indv x ls)
-  (let f ([ls ls] [i 0])
-    (cond
-     [(null? ls) #f]
-     [(eqv? (car ls) x) i]
-     [else (f (cdr ls) (+ i 1))])))
+   [(null? (car lss))
+    '()]
+   [(pair? (car lss))
+    (cons (apply f (map car lss))
+          (apply map* f (map cdr lss)))]
+   [else
+    (apply f lss)]))

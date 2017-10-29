@@ -28,15 +28,13 @@
    [(symbol? e)
     (meaning-reference e cenv tail?)]
    [else
-    (if (pair? e)
-        (case (car e)
-          [(quote)  (meaning-quote    (cadr e) cenv tail?)]
-          [(if)     (meaning-if       (cadr e) (cddr e) cenv tail?)]
-          [(set!)   (meaning-set      (cadr e) (caddr e) cenv tail?)]
-          [(lambda) (meaning-lambda   (cadr e) (cddr e) cenv tail?)]
-          [(begin)  (meaning-sequence (cdr e) cenv tail?)]
-          [else     (meaning-application e cenv tail?)])
-        (error 'meaning-expanded "Unreachable" e))]))
+    (case (car e)
+      [(quote)  (meaning-quote       (cadr e) cenv tail?)]
+      [(if)     (meaning-if          (cadr e) (cddr e) cenv tail?)]
+      [(set!)   (meaning-set         (cadr e) (caddr e) cenv tail?)]
+      [(lambda) (meaning-lambda      (cadr e) (cddr e) cenv tail?)]
+      [(begin)  (meaning-sequence    (cdr e) cenv tail?)]
+      [else     (meaning-application e cenv tail?)])]))
 
 (define (meaning-quote c cenv tail?)
   (case c
@@ -192,4 +190,4 @@
   (init-constants!)
   (init-globals!)
   (reset-exit-flag!)
-  (init-macros!))
+  (init-macroexpander!))

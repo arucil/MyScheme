@@ -361,6 +361,11 @@
                (my-or #f #f 789))))
       '(#f 123 123 789))
 
+(test ((let ([x 1])
+         (let-syntax ([f (syntax-rules ()
+                           [(_) (cons x 'x)])])
+           (f))))
+      '(1 . x))
 
 ;; hygiene
 
