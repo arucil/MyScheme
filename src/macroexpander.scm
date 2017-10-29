@@ -1,33 +1,32 @@
 
 ;;;;;;;;;;;;;;;;;;;;           denotation environment  ;;;;;;;;;;;;;;;;;;;
 
-;; denotation: (name . value)
+;; denotation: (name . value) or name
+
+;; name: identifier
+;; value: identifier or procedure
 
 ;; local variable denotation: (original-name . marked-name)
-;; global variable:           (name . name)
-;; macro denotation:          (name . marco-transformer)
+;; global variable:           name
+;; macro denotation:          (name . macro-transformer)
 
-(define *global-denv* #f)
+(define *macros* #f)
 
 (define (init-macroexpander!)
-  (set! *global-denv* '()))
+  (set! *macros* '()))
 
-(define (global-denv-add! name den)
+(define (add-macro! name transformer)
   (set! *global-denv*
-    (cons den
-          *global-denv*))
-  den)
+    (cons (cons name transformer)
+          *global-denv*)))
 
 (define (init-denv) '())
 
 (define (apply-denv env var)
   (cond
    [(assq var env) => cdr]
-   [(assq var *global-denv*)]
-   [else
-    (global-denv-add!
-     var
-     (cons var var))]))
+   [(assq var *macros*)]
+   [else var]))
 
 (define (extend-denv var val env)
   (cond
@@ -44,10 +43,12 @@
           env)]))
 
 (define (identifier? den)
-  (symbol? (cdr den)))
+  (or (symbol? den)
+      (symbol? (cdr den))))
 
 (define (macro? den)
-  (procedure? (cdr den)))
+  (and (pair? den)
+       (procedure? (cdr den))))
 
 (define (invoke-macro den e env)
   ((denotation-value den) e env))
@@ -56,10 +57,14 @@
   (cons name value))
 
 (define (denotation-name den)
-  (car den))
+  (if (symbol? den)
+      den
+      (car den)))
 
 (define (denotation-value den)
-  (cdr den))
+  (if (symbol? den)
+      den
+      (cdr den)))
 
 (define (denotation-value-set! den v)
   (set-cdr! den v))
@@ -177,7 +182,6 @@
              [env (extend-denv vars
                                (map* cons vars new-vars)
                                env)])
-        ;;;TODO: convert define & define-syntax
         (let loop ([body     (cddr e)]
                    [defs     '()]
                    [stxs     '()])

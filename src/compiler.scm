@@ -49,9 +49,9 @@
   (let* ([m1 (meaning-expanded e1 cenv #f)]
          [m2 (meaning-expanded (car e*) cenv tail?)]
          [m3 (meaning-expanded (if (pair? (cdr e*))
-                          (cadr e*)
-                          #f)
-                      cenv tail?)]
+                                   (cadr e*)
+                                   #f)
+                               cenv tail?)]
          [m2/goto (append m2 (gen-goto 'goto (length m3)))])
     (append m1 (gen-goto 'goto-if-false (length m2/goto))
             m2/goto
