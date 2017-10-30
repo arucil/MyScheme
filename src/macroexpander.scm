@@ -16,9 +16,9 @@
   (set! *macros* '()))
 
 (define (add-macro! name transformer)
-  (set! *global-denv*
+  (set! *macros*
     (cons (cons name transformer)
-          *global-denv*)))
+          *macros*)))
 
 (define (init-denv) '())
 
@@ -246,11 +246,9 @@
   (if toplevel?
       (begin
         (verify-define-syntax e)
-        (global-denv-add!
+        (add-macro!
          (cadr e)
-         (make-denotation
-          (cadr e)
-          (make-macro-transformer (caddr e) env)))
+         (make-macro-transformer (caddr e) env))
         #f)
       (compile-error "Misplaced define-syntax" e)))
 
