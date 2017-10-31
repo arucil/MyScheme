@@ -10,8 +10,6 @@
 
 (define-syntax letrec
   (syntax-rules ()
-    [(_ () e1 e2 ...)
-     (begin e1 e2 ...)]
     [(_ ([name exp] ...) e1 e2 ...)
      (let ([name #f] ...)
        (set! name exp) ...

@@ -57,14 +57,14 @@
   (cons name value))
 
 (define (denotation-name den)
-  (if (symbol? den)
-      den
-      (car den)))
+  (if (pair? den)
+      (car den)
+      den))
 
 (define (denotation-value den)
-  (if (symbol? den)
-      den
-      (cdr den)))
+  (if (pair? den)
+      (cdr den)
+      den))
 
 (define (denotation-value-set! den v)
   (set-cdr! den v))
@@ -180,7 +180,7 @@
                                  mark))
                               vars)]
              [env (extend-denv vars
-                               (map* cons vars new-vars)
+                               (map* make-denotation vars new-vars)
                                env)])
         (let loop ([body     (cddr e)]
                    [defs     '()]
@@ -213,12 +213,18 @@
                              defs
                              (cons (cdr e1) stxs))]))]
                  [else
-                  `(lambda ,new-vars
-                     ,(expand
-                       `(letrec ,defs
-                          (letrec-syntax ,stxs
-                            . ,body))
-                       env #f))])))))
+                  (if (null? defs)
+                      `(lambda ,new-vars
+                         ,(expand
+                           `(letrec-syntax ,stxs
+                              . ,body)
+                           env #f))
+                      `(lambda ,new-vars
+                         ,(expand
+                           `(letrec ,defs
+                              (letrec-syntax ,stxs
+                                . ,body))
+                           env #f)))])))))
       (compile-error "Invalid lambda" e)))
 
 (define (expand-quote e env toplevel?)
