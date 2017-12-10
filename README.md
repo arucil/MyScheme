@@ -10,7 +10,7 @@ A simple Scheme compiler &amp; virtual machine
 - [x] First-class continuation (`call/cc`)
 - [x] Hygienic macro (`syntax-rules`)
 - [x] Local macro (local `define-syntax`, `let-syntax` and `letrec-syntax`)
-- [ ] Multiple values
+- [x] Multiple values
 
 # Run
 

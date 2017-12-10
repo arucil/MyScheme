@@ -212,3 +212,35 @@
   (set! assq (make-assoc-proc eq?))
   (set! assv (make-assoc-proc eqv?))
   (set! assoc (make-assoc-proc equal?)))
+
+
+;; multiple values
+
+(define values #f)
+(define call-with-values #f)
+
+(let ([multiple-value-tag (cons 'multiple 'values)])
+  (define (multiple-values? p)
+    (and (pair? p) (eq? multiple-value-tag (car p))))
+
+  (set! values
+    (lambda args
+      (if (and (not (null? args))
+               (null? (cdr args)))
+          (car args)
+          (cons multiple-value-tag args))))
+
+  (set! call-with-values
+    (lambda (producer consumer)
+      (let ([v (producer)])
+        (if (multiple-values? v)
+            (apply consumer (cdr v))
+            (consumer v)))))
+
+  (set! call/cc
+    (let ([primitive-call/cc call/cc])
+      (lambda (p)
+        (primitive-call/cc
+         (lambda (k)
+           (p (lambda args
+                (k (apply values args))))))))))

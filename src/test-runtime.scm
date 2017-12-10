@@ -410,3 +410,28 @@
          (xx)))
       '(1 3))
 
+
+
+;;;;;;;; multiple values
+
+(test ((values 100))
+      '100)
+
+(test ((call-with-values
+           (lambda ()
+             (values 2 3))
+         (lambda (a b)
+           (list b a))))
+      '(3 2))
+
+(test ((call-with-values * -))
+      -1)
+
+(test ((call-with-values
+           (lambda ()
+             (call/cc
+              (lambda (k)
+                (k 2 3))))
+         (lambda (a b)
+           (list b a))))
+      '(3 2))
