@@ -1,7 +1,10 @@
 # MyScheme
-A simple Scheme compiler &amp; virtual machine
+
+This is a Scheme interpreter written in Scheme, composed of a compiler and a virtual machine.  
 
 # Features
+
+Most R5RS features are implemented.
 
 - [x] First-class procedure
 - [x] Proper tail call
@@ -14,10 +17,24 @@ A simple Scheme compiler &amp; virtual machine
 
 # Run
 
-- ChezScheme：
+## Using ChezScheme
+
+Run Scheme source files:
+
+```bash
+$ cd src && scheme --script main.scm filename...
 ```
-$ cd src
-$ scheme --script main.scm filename...
+
+or play with REPL:  
+
+```bash
+$ cd src && scheme
+
+# in ChezScheme ...
+> (load "runtime.scm") ;; load REPL facility
+> (repl)
+;; starting MyScheme REPL ...
+myscheme> 
 ```
 
 # Bibliography
