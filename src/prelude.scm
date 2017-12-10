@@ -4,9 +4,19 @@
     [(_ ([name exp] ...) e1 e2 ...)
      ((lambda (name ...) e1 e2 ...) exp ...)]
     [(_ proc ([name exp] ...) e1 e2 ...)
-     (letrec ([proc (lambda (name ...)
-                      e1 e2 ...)])
-       (proc exp ...))]))
+     ((letrec ([proc (lambda (name ...)
+                       e1 e2 ...)])
+        proc)
+      exp ...)]))
+
+(define-syntax let*
+  (syntax-rules ()
+    [(_ () e1 e2 ...)
+     (begin e1 e2 ...)]
+    [(_ ([name1 exp1] [name2 exp2] ...) e1 e2 ...)
+     (let ([name1 exp1])
+       (let* ([name2 exp2] ...)
+         e1 e2 ...))]))
 
 (define-syntax letrec
   (syntax-rules ()
@@ -63,6 +73,42 @@
      (if test
          (begin e1 e2 ...)
          (cond c1 c2 ...))]))
+
+(define-syntax case
+  (syntax-rules (else)
+    [(_ (e1 ...) clause ...) ;; apply application first
+     (let ([atom-key (e1 ...)])
+       (case atom-key clause ...))]
+    [(_ key [else e1 e2 ...])
+     (begin e1 e2 ...)]
+    [(_ key [(d ...) e1 e2 ...])
+     (if (memv key '(d ...))
+         (begin e1 e2 ...))]
+    [(_ key [(d ...) e1 e2 ...] clause ...)
+     (if (memv key '(d ...))
+         (begin e1 e2 ...)
+         (case key clause ...))]))
+
+(define-syntax do
+  (syntax-rules ()
+    [(_ ([var init step ...] ...)
+        [test r1 ...]
+        e1 ...)
+     (let loop ([var init] ...)
+       (if test
+           (begin
+             #f
+             r1 ...)
+           (begin
+             e1 ...
+             (loop (do-step var step ...) ...))))]))
+
+(define-syntax do-step
+  (syntax-rules ()
+    [(_ x y)
+     y]
+    [(_ x)
+     x]))
 
 (define-syntax quasiquote
   (syntax-rules ()
@@ -132,3 +178,37 @@
           '()
           (f (car lss)
              (cdr lss))))))
+
+
+(define memq #f)
+(define memv #f)
+(define member #f)
+
+(let ()
+  (define (make-member-proc pred)
+    (letrec ([f (lambda (x ls)
+                  (cond
+                   [(null? ls) #f]
+                   [(pred x (car ls)) ls]
+                   [else (f x (cdr ls))]))])
+      f))
+  (set! memq (make-member-proc eq?))
+  (set! memv (make-member-proc eqv?))
+  (set! member (make-member-proc equal?)))
+
+
+(define assq #f)
+(define assv #f)
+(define assoc #f)
+
+(let ()
+  (define (make-assoc-proc pred)
+    (letrec ([f (lambda (x ls)
+                  (cond
+                   [(null? ls) #f]
+                   [(pred x (caar ls)) (car ls)]
+                   [else (f x (cdr ls))]))])
+      f))
+  (set! assq (make-assoc-proc eq?))
+  (set! assv (make-assoc-proc eqv?))
+  (set! assoc (make-assoc-proc equal?)))

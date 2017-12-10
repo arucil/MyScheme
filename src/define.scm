@@ -284,7 +284,7 @@
   (define-instruction (func arity) 26     ; regular function
     (unless (= (- (activation-frame-size *env*) 1)
                arity)
-      (runtime-error "Incorrect arity" arity size)))
+      (runtime-error "Incorrect arity" arity (- (activation-frame-size *env*) 1))))
 
   (define-instruction (varfunc arity) 27  ; variadic function
     (let ([size (- (activation-frame-size *env*) 1)])
