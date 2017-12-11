@@ -25,6 +25,18 @@
        (set! name exp) ...
        e1 e2 ...)]))
 
+(define-syntax when
+  (syntax-rules ()
+    [(_ test e1 e2 ...)
+     (if test
+         (begin e1 e2 ...))]))
+
+(define-syntax unless
+  (syntax-rules ()
+    [(_ test e1 e2 ...)
+     (if (not test)
+         (begin e1 e2 ...))]))
+
 (define-syntax and
   (syntax-rules ()
     [(_) #t]
@@ -139,6 +151,37 @@
     [(_ x . lv) 'x]))
 
 
+
+(define (caar x) (car (car x)))
+(define (cadr x) (car (cdr x)))
+(define (cdar x) (cdr (car x)))
+(define (cddr x) (cdr (cdr x)))
+(define (caaar x) (car (car (car x))))
+(define (cdaar x) (cdr (car (car x))))
+(define (cadar x) (car (cdr (car x))))
+(define (cddar x) (cdr (cdr (car x))))
+(define (caadr x) (car (car (cdr x))))
+(define (caddr x) (car (cdr (cdr x))))
+(define (cdadr x) (cdr (car (cdr x))))
+(define (cdddr x) (cdr (cdr (cdr x))))
+(define (caaaar x) (car (car (car (car x)))))
+(define (cdaaar x) (cdr (car (car (car x)))))
+(define (cadaar x) (car (cdr (car (car x)))))
+(define (cddaar x) (cdr (cdr (car (car x)))))
+(define (caadar x) (car (car (cdr (car x)))))
+(define (caddar x) (car (cdr (cdr (car x)))))
+(define (cdadar x) (cdr (car (cdr (car x)))))
+(define (cdddar x) (cdr (cdr (cdr (car x)))))
+(define (caaadr x) (car (car (car (cdr x)))))
+(define (cdaadr x) (cdr (car (car (cdr x)))))
+(define (cadadr x) (car (cdr (car (cdr x)))))
+(define (cddadr x) (cdr (cdr (car (cdr x)))))
+(define (caaddr x) (car (car (cdr (cdr x)))))
+(define (cadddr x) (car (cdr (cdr (cdr x)))))
+(define (cdaddr x) (cdr (car (cdr (cdr x)))))
+(define (cddddr x) (cdr (cdr (cdr (cdr x)))))
+
+
 (define map
   (letrec ([map1 (lambda (f ls)
                    (if (null? ls)
@@ -179,6 +222,16 @@
           (f (car lss)
              (cdr lss))))))
 
+(define (list-ref ls n)
+  (if (= n 0)
+      (car ls)
+      (list-ref (cdr ls) (- n 1))))
+
+(define (list-tail ls n)
+  (if (= n 0)
+      ls
+      (list-tail (cdr ls) (- n 1))))
+
 
 (define memq #f)
 (define memv #f)
@@ -214,14 +267,42 @@
   (set! assoc (make-assoc-proc equal?)))
 
 
-;; multiple values
+;; multiple values & dynamic-wind
 
 (define values #f)
 (define call-with-values #f)
+(define dynamic-wind #f)
 
-(let ([multiple-value-tag (cons 'multiple 'values)])
+(let ([multiple-value-tag (cons 'multiple 'values)]
+      [winders '()])
   (define (multiple-values? p)
     (and (pair? p) (eq? multiple-value-tag (car p))))
+
+  (define (common-tail a b)
+    (let ([la (length a)]
+          [lb (length b)])
+      (do ([a (if (> la lb)
+                  (list-tail a (- la lb))
+                  a)
+              (cdr a)]
+           [b (if (> lb la)
+                  (list-tail b (- lb la))
+                  b)
+              (cdr b)])
+          [(eq? a b) a])))
+
+  (define (do-wind new)
+    (let ([tail (common-tail new winders)])
+      (let f ([ls winders])
+        (unless (eq? ls tail)
+          (set! winders (cdr ls))
+          ((cdar ls))
+          (f (cdr ls))))
+      (let f ([ls new])
+        (unless (eq? ls tail)
+          (f (cdr ls))
+          ((caar ls))
+          (set! winders ls)))))
 
   (set! values
     (lambda args
@@ -237,10 +318,22 @@
             (apply consumer (cdr v))
             (consumer v)))))
 
+  (set! dynamic-wind
+    (lambda (in thunk out)
+      (in)
+      (set! winders (cons (cons in out) winders))
+      (let ([v (thunk)])
+        (set! winders (cdr winders))
+        (out)
+        v)))
+
   (set! call/cc
     (let ([primitive-call/cc call/cc])
       (lambda (p)
         (primitive-call/cc
          (lambda (k)
-           (p (lambda args
-                (k (apply values args))))))))))
+           (p (let ([saved winders])
+                (lambda args
+                  (unless (eq? saved winders)
+                    (do-wind saved))
+                  (k (apply values args)))))))))))

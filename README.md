@@ -42,3 +42,5 @@ myscheme>
 - *Lisp in Small Pieces*, Christian Queinnec
 - *Macro-by-Example*, Eugene Kohlbecker, et al
 - *Macros that work*, William Clinger, et al
+- *The Scheme Programming Language, 4th Edition*, R. Kent Dybvig
+- *Revised^5 Report on the Algorithmic Language Scheme*, H. Abelson, et al

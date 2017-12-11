@@ -435,3 +435,94 @@
          (lambda (a b)
            (list b a))))
       '(3 2))
+
+
+;;;;; dynamic-wind
+
+(test ((dynamic-wind
+         (lambda ()
+           (display "in,"))
+         (lambda ()
+           3)
+         (lambda ()
+           (display "out"))))
+      3
+      "in,out")
+
+(test ((call/cc
+        (lambda (k)
+          (dynamic-wind
+            (lambda ()
+              (display "in,"))
+            (lambda ()
+              (k 3))
+            (lambda ()
+              (display "out"))))))
+      3
+      "in,out")
+
+(test ((define a #t)
+       (define cont #f)
+       (let ([x 3])
+         (dynamic-wind
+           (lambda () 1)
+           (lambda ()
+             (call/cc
+              (lambda (k)
+                (set! cont k)
+                2)))
+           (lambda ()
+             (set! x (+ x x))))
+         (if a
+             (begin
+               (set! a #f)
+               (cont 500))
+             x)))
+      12)
+
+(test ((define a #t)
+       (define cont #f)
+       (call/cc
+        (lambda (k1)
+          (dynamic-wind
+            (lambda ()
+              (display "in,"))
+            (lambda ()
+              (call/cc
+               (lambda (k2)
+                 (set! cont k2)
+                 (k1 3))))
+            (lambda ()
+              (display "out,")))))
+       (if a
+           (begin
+             (set! a #f)
+             (cont 4))
+           4))
+      4
+      "in,out,in,out,")
+
+(test ((define a #t)
+       (define cont #f)
+       (dynamic-wind
+         (lambda ()
+           (display "in1,"))
+         (lambda ()
+           (call/cc
+            (lambda (k)
+              (set! cont k)
+              3)))
+         (lambda ()
+           (display "out1,")))
+       (when a
+         (set! a #f)
+         (dynamic-wind
+           (lambda ()
+             (display "in2,"))
+           (lambda ()
+             (cont 4))
+           (lambda ()
+             (display "out2,"))))
+       10)
+      10
+      "in1,out1,in2,out2,in1,out1,")
